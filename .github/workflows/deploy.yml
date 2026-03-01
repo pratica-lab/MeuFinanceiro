@@ -4,16 +4,24 @@ on:
   push:
     branches: [ main ] # Executa quando você faz push para a branch main
 
+# Define as permissões necessárias para o GitHub Actions publicar no Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
+# Garante que apenas um deploy aconteça por vez
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
 jobs:
   build-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      # Corrigido: Adicionados os prefixos 'actions/' que estavam faltando
       - name: Checkout
         uses: actions/checkout@v4
 
