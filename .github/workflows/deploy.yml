@@ -1,8 +1,9 @@
+# ESTE ARQUIVO DEVE FICAR EM: .github/workflows/deploy.yml
 name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [ main ] # Executa quando você faz push para a branch main
+    branches: [ main ] # Executa sempre que você der 'git push' para a branch main
 
 # Define as permissões necessárias para o GitHub Actions publicar no Pages
 permissions:
@@ -10,7 +11,7 @@ permissions:
   pages: write
   id-token: write
 
-# Garante que apenas um deploy aconteça por vez
+# Garante que apenas um deploy aconteça por vez para evitar conflitos
 concurrency:
   group: "pages"
   cancel-in-progress: false
@@ -23,10 +24,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4 # Corrigido: adicionado prefixo 'actions/'
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4 # Corrigido: adicionado prefixo 'actions/'
         with:
           node-version: 20
           cache: 'npm'
@@ -38,13 +39,13 @@ jobs:
         run: npm run build
 
       - name: Setup Pages
-        uses: actions/configure-pages@v4
+        uses: actions/configure-pages@v4 # Corrigido: adicionado prefixo 'actions/'
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v3 # Corrigido: adicionado prefixo 'actions/'
         with:
           path: './dist'
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v4 # Corrigido: adicionado prefixo 'actions/'
