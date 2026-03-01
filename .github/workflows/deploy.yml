@@ -1,9 +1,8 @@
-# ESTE ARQUIVO DEVE FICAR EM: .github/workflows/deploy.yml
 name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [ main ] # Executa sempre que você der 'git push' para a branch main
+    branches: [ main ] # Executa quando você faz push para a branch main
 
 permissions:
   contents: read
@@ -14,11 +13,12 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     steps:
+      # Corrigido: Adicionados os prefixos 'actions/' que estavam faltando
       - name: Checkout
-        uses: checkout@v4
+        uses: actions/checkout@v4
 
       - name: Set up Node
-        uses: setup-node@v4
+        uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
@@ -30,13 +30,13 @@ jobs:
         run: npm run build
 
       - name: Setup Pages
-        uses: configure-pages@v4
+        uses: actions/configure-pages@v4
 
       - name: Upload artifact
-        uses: upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v3
         with:
           path: './dist'
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: deploy-pages@v4
+        uses: actions/deploy-pages@v4
