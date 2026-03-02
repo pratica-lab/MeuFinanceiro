@@ -2,14 +2,14 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 
 // --- NOTA PARA O SEU VS CODE LOCAL ---
 // No seu computador, você DEVE manter a linha abaixo ativa (remova as barras //).
-// Ela é necessária para o Tailwind v4 funcionar. 
-// No preview aqui do chat, ela está comentada apenas para evitar o erro de compilação do sistema.
+// Ela é necessária para o Tailwind v4 funcionar localmente.
+// No preview aqui do chat, ela está comentada apenas para evitar erro de compilação.
 // import "./index.css"; 
 
 import {
   Plus, Trash2, CheckCircle, Circle, Download, Search, Cloud,
   Loader2, Upload, Sun, Moon, Repeat, FileText,
-  ChevronDown, LogOut, SortAsc, DollarSign, Filter, Calendar
+  ChevronDown, LogOut, SortAsc, DollarSign, Camera
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import {
@@ -52,7 +52,7 @@ export default function App() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [showExportMenu, setShowExportMenu] = useState(false);
   
-  // Filtros e Ordenação Restaurados
+  // Filtros e Ordenação
   const [filterStatus, setFilterStatus] = useState("all");
   const [sortBy, setSortBy] = useState("date");
 
@@ -101,7 +101,16 @@ export default function App() {
     return () => unsubscribe();
   }, [user]);
 
-  // --- Funções de Negócio ---
+  // Carrega html2canvas via CDN para garantir funcionamento local e remoto
+  useEffect(() => {
+    if (typeof window !== "undefined" && !window.html2canvas) {
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+        document.head.appendChild(script);
+    }
+  }, []);
+
+  // --- Funções de Autenticação ---
   const handleGoogleLogin = async () => {
     setAuthLoading(true);
     const provider = new GoogleAuthProvider();
@@ -236,6 +245,26 @@ export default function App() {
     setShowExportMenu(false);
   };
 
+  const handleExportImage = async () => {
+    if (!listRef.current || !window.html2canvas) {
+      alert("Aguarde o carregamento das ferramentas de captura...");
+      return;
+    }
+    try {
+      const canvas = await window.html2canvas(listRef.current, { 
+        backgroundColor: isDarkMode ? "#0f172a" : "#f9fafb",
+        scale: 2 
+      });
+      const link = document.createElement("a");
+      link.download = "meu-financeiro-print.png";
+      link.href = canvas.toDataURL();
+      link.click();
+      setShowExportMenu(false);
+    } catch (err) {
+      alert("Erro ao gerar imagem.");
+    }
+  };
+
   const handleImportCSV = async (e) => {
     e.preventDefault();
     if (!csvFile || !user) return;
@@ -273,13 +302,13 @@ export default function App() {
     bg: isDarkMode ? "bg-slate-900" : "bg-gray-50",
     text: isDarkMode ? "text-slate-100" : "text-black",
     subText: isDarkMode ? "text-slate-400" : "text-gray-500",
-    card: isDarkMode ? "bg-slate-800 border-slate-700" : "bg-white border-gray-200",
+    card: isDarkMode ? "bg-slate-800 border-slate-700 shadow-lg" : "bg-white border-gray-200 shadow-sm",
     input: isDarkMode ? "bg-slate-700 border-slate-600 text-white" : "bg-white border-gray-300 text-black",
     modal: isDarkMode ? "bg-slate-800" : "bg-white",
-    trash: isDarkMode ? "text-red-400 hover:text-red-300" : "text-black hover:text-red-600", // Lixeira preta no tema claro
-    circle: isDarkMode ? "text-gray-600" : "text-slate-200", // Borda do círculo mais clara no tema claro
+    trash: isDarkMode ? "text-red-400 hover:text-red-300" : "text-black hover:text-red-600",
+    circle: isDarkMode ? "text-gray-600" : "text-slate-200",
     
-    // Configurações específicas para o Menu/Filtros
+    // Configurações do Menu/Filtros (Estilo Solicitado)
     tabContainer: isDarkMode ? "bg-slate-800" : "bg-[#E5E7EB]",
     tabSelected: isDarkMode ? "bg-white dark:bg-slate-600 text-slate-900 dark:text-white shadow" : "bg-white text-[#1F2937] shadow",
     tabUnselected: isDarkMode ? "opacity-50 text-white" : "text-[#828891] bg-transparent"
@@ -309,11 +338,9 @@ export default function App() {
               <Cloud size={22} className="text-indigo-300" />
               <span className="font-bold tracking-tight">PráticaLab - Meu Financeiro</span>
             </div>
-            {user && (
-              <p className="text-[10px] opacity-70 font-light mt-0.5 tracking-wide italic">
-                conectado como: {user.displayName || user.email.split('@')[0]}
-              </p>
-            )}
+            <p className="text-[10px] opacity-70 font-light mt-0.5 tracking-wide italic">
+              Conectado como: {user.displayName || user.email.split('@')[0]}
+            </p>
           </div>
           <div className="flex gap-2">
             <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 hover:bg-white/10 rounded-lg transition">
@@ -324,8 +351,15 @@ export default function App() {
               <button onClick={() => setShowExportMenu(!showExportMenu)} className="p-2 hover:bg-white/10 rounded-lg flex items-center gap-1"><Download size={20} /> <ChevronDown size={14} /></button>
               {showExportMenu && (
                 <div className={`absolute right-0 mt-2 w-48 rounded-xl shadow-2xl overflow-hidden z-30 border ${theme.card}`}>
-                  <button onClick={() => handleExportCSV("filtered")} className={`w-full text-left px-4 py-3 text-sm hover:bg-slate-100 dark:hover:bg-slate-700 ${theme.text}`}>Exportar CSV (Atual)</button>
-                  <button onClick={() => handleExportCSV("all")} className={`w-full text-left px-4 py-3 text-sm hover:bg-slate-100 dark:hover:bg-slate-700 ${theme.text}`}>Exportar CSV (Tudo)</button>
+                  <button onClick={() => handleExportCSV("filtered")} className={`w-full text-left px-4 py-3 text-sm flex items-center gap-2 hover:bg-slate-100 dark:hover:bg-slate-700 ${theme.text}`}>
+                    <FileText size={16} /> CSV (Atual)
+                  </button>
+                  <button onClick={() => handleExportCSV("all")} className={`w-full text-left px-4 py-3 text-sm flex items-center gap-2 hover:bg-slate-100 dark:hover:bg-slate-700 ${theme.text}`}>
+                    <FileText size={16} /> CSV (Tudo)
+                  </button>
+                  <button onClick={handleExportImage} className={`w-full text-left px-4 py-3 text-sm flex items-center gap-2 hover:bg-slate-100 dark:hover:bg-slate-700 ${theme.text}`}>
+                    <Camera size={16} /> Imagem (Print)
+                  </button>
                 </div>
               )}
             </div>
@@ -335,8 +369,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto p-4 sm:p-6 space-y-5">
-        {/* Busca e Data */}
+      <main className="max-w-3xl mx-auto p-4 sm:p-6 space-y-5" ref={listRef}>
         <div className="flex flex-col sm:flex-row gap-2">
           <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className={`flex-1 p-3 rounded-xl border font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-500 ${theme.input}`} />
           <div className={`flex-[2] flex items-center border rounded-xl px-4 shadow-sm focus-within:ring-2 focus-within:ring-indigo-500 ${theme.input}`}>
@@ -345,27 +378,12 @@ export default function App() {
           </div>
         </div>
 
-        {/* Barra de Filtros Restaurada com Novas Cores */}
+        {/* Barra de Filtros (Estilo Solicitado) */}
         <div className="flex flex-col sm:flex-row gap-2">
           <div className={`flex ${theme.tabContainer} p-1 rounded-xl flex-1`}>
-            <button 
-              onClick={() => setFilterStatus("all")} 
-              className={`flex-1 py-2 rounded-lg text-xs font-bold transition ${filterStatus === "all" ? theme.tabSelected : theme.tabUnselected}`}
-            >
-              Todos
-            </button>
-            <button 
-              onClick={() => setFilterStatus("paid")} 
-              className={`flex-1 py-2 rounded-lg text-xs font-bold transition ${filterStatus === "paid" ? theme.tabSelected : theme.tabUnselected}`}
-            >
-              Pagos
-            </button>
-            <button 
-              onClick={() => setFilterStatus("open")} 
-              className={`flex-1 py-2 rounded-lg text-xs font-bold transition ${filterStatus === "open" ? theme.tabSelected : theme.tabUnselected}`}
-            >
-              Abertos
-            </button>
+            <button onClick={() => setFilterStatus("all")} className={`flex-1 py-2 rounded-lg text-xs font-bold transition ${filterStatus === "all" ? theme.tabSelected : theme.tabUnselected}`}>Todos</button>
+            <button onClick={() => setFilterStatus("paid")} className={`flex-1 py-2 rounded-lg text-xs font-bold transition ${filterStatus === "paid" ? theme.tabSelected : theme.tabUnselected}`}>Pagos</button>
+            <button onClick={() => setFilterStatus("open")} className={`flex-1 py-2 rounded-lg text-xs font-bold transition ${filterStatus === "open" ? theme.tabSelected : theme.tabUnselected}`}>Abertos</button>
           </div>
           <div className={`flex items-center gap-2 border rounded-xl px-3 ${theme.input} text-xs`}>
             <SortAsc size={16} className="opacity-40" />
@@ -394,31 +412,13 @@ export default function App() {
           </div>
         </div>
 
-        {/* Abas Receber/Pagar com Configurações Específicas */}
+        {/* Abas Receber/Pagar (Estilo Solicitado) */}
         <div className={`flex ${theme.tabContainer} p-1 rounded-xl`}>
-          <button 
-            onClick={() => setActiveTab("receivable")} 
-            className={`flex-1 py-3 rounded-lg text-xs font-semibold transition-all duration-300 ${
-              activeTab === "receivable" 
-                ? theme.tabSelected
-                : theme.tabUnselected
-            }`}
-          >
-            Receber
-          </button>
-          <button 
-            onClick={() => setActiveTab("payable")} 
-            className={`flex-1 py-3 rounded-lg text-xs font-semibold transition-all duration-300 ${
-              activeTab === "payable" 
-                ? theme.tabSelected
-                : theme.tabUnselected
-            }`}
-          >
-            Pagar
-          </button>
+          <button onClick={() => setActiveTab("receivable")} className={`flex-1 py-3 rounded-lg text-xs font-semibold transition-all duration-300 ${activeTab === "receivable" ? theme.tabSelected : theme.tabUnselected}`}>Receber</button>
+          <button onClick={() => setActiveTab("payable")} className={`flex-1 py-3 rounded-lg text-xs font-semibold transition-all duration-300 ${activeTab === "payable" ? theme.tabSelected : theme.tabUnselected}`}>Pagar</button>
         </div>
 
-        {/* Lista Principal */}
+        {/* Lista de Lançamentos */}
         <div className="space-y-3">
           {filteredTransactions.map(t => (
             <div key={t.id} onClick={() => { setEditingItem(t); setFormData({ ...t }); setIsModalOpen(true); }} className={`p-4 rounded-xl border flex items-center justify-between cursor-pointer hover:shadow-lg transition-all group ${theme.card}`}>
@@ -428,7 +428,6 @@ export default function App() {
                 </button>
                 <div className="truncate">
                   <div className="flex items-center gap-2">
-                    {/* Alterado font-bold para font-normal conforme item 4 */}
                     <p className={`text-sm font-normal truncate ${t.status ? "line-through opacity-30" : theme.text}`}>{t.description}</p>
                     {t.groupId && <Repeat size={12} className="text-indigo-400 opacity-60" />}
                   </div>
@@ -439,7 +438,6 @@ export default function App() {
                 <span className={`font-bold text-sm sm:text-base ${t.status ? "opacity-30" : activeTab === "receivable" ? "text-emerald-600" : "text-red-600"}`}>
                   R$ {parseFloat(t.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                 </span>
-                {/* Lixeira com cor do texto no tema claro conforme item 1 */}
                 <button onClick={(e) => handleDeleteRequest(t, e)} className={`p-2 transition-all rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 sm:opacity-0 sm:group-hover:opacity-100 ${theme.trash}`}>
                   <Trash2 size={18} />
                 </button>
@@ -449,13 +447,13 @@ export default function App() {
           {filteredTransactions.length === 0 && (
             <div className="text-center py-20 opacity-30 flex flex-col items-center">
               <FileText size={48} className="mb-2" />
-              <p className="text-xs font-bold uppercase tracking-widest">Lista Vazia</p>
+              <p className="text-xs font-bold uppercase tracking-widest">Nenhum registro encontrado</p>
             </div>
           )}
         </div>
       </main>
 
-      {/* Modais */}
+      {/* Modais Restaurados */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className={`w-full max-w-md rounded-2xl p-8 shadow-2xl border border-gray-100 dark:border-slate-700 ${theme.modal}`}>
@@ -479,10 +477,9 @@ export default function App() {
                 </div>
               </div>
               <div>
-                <label className="text-[10px] font-bold opacity-50 uppercase ml-1 tracking-widest">Entidade / Devedor</label>
+                <label className="text-[10px] font-bold opacity-50 uppercase ml-1 tracking-widest">{activeTab === "receivable" ? "Devedor" : "Entidade"}</label>
                 <input placeholder="Nome" className={`w-full p-4 rounded-xl border ${theme.input}`} value={formData.entity} onChange={e => setFormData({...formData, entity: e.target.value})} />
               </div>
-              
               {!editingItem && (
                 <div className={`p-5 rounded-xl border ${isDarkMode ? "bg-slate-700/30 border-slate-600" : "bg-gray-50 border-gray-200"}`}>
                   <div className="flex justify-between items-center mb-2">
@@ -492,7 +489,6 @@ export default function App() {
                   <input type="range" min="1" max="24" className="w-full accent-indigo-600 cursor-pointer" value={formData.repeatCount} onChange={e => setFormData({...formData, repeatCount: e.target.value})} />
                 </div>
               )}
-
               <div className="flex flex-col gap-2 pt-4">
                 <button type="submit" disabled={isSaving} className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold shadow-lg transition active:scale-95 disabled:opacity-50">
                   {isSaving ? "Gravando..." : "Confirmar Lançamento"}
@@ -509,8 +505,8 @@ export default function App() {
           <div className={`w-full max-w-sm rounded-2xl p-8 shadow-2xl ${theme.modal}`}>
             <h3 className="font-bold text-lg mb-3 text-indigo-500">Editar Recorrência</h3>
             <p className={`text-sm mb-6 ${theme.text} opacity-70`}>Deseja aplicar as alterações apenas a este mês ou a todos os próximos também?</p>
-            <button onClick={() => executeSave("single")} className={`w-full py-3.5 rounded-xl mb-2 font-bold border ${theme.input} hover:opacity-80`}>Apenas este mês</button>
-            <button onClick={() => executeSave("series")} className="w-full py-3.5 rounded-xl mb-4 font-bold bg-indigo-600 text-white shadow-lg">Este e os futuros</button>
+            <button onClick={() => executeSave("single")} className={`w-full py-3.5 rounded-2xl mb-2 font-bold border ${theme.input} hover:opacity-80`}>Apenas este mês</button>
+            <button onClick={() => executeSave("series")} className="w-full py-3.5 rounded-2xl mb-4 font-bold bg-indigo-600 text-white shadow-lg">Este e os futuros</button>
             <button onClick={() => setRecurringEditModalOpen(false)} className={`w-full text-center text-xs font-bold opacity-40 uppercase tracking-widest ${theme.text}`}>Voltar</button>
           </div>
         </div>
