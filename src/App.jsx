@@ -547,7 +547,15 @@ export default function FinanceApp() {
           backgroundColor: isDarkMode ? "#0f172a" : "#f9fafb",
           scale: 2,
           useCORS: true,
-          logging: false
+          logging: false,
+          onclone: (document) => {
+            // Remove as restrições de corte temporariamente apenas no momento de gerar a foto
+            const elements = document.querySelectorAll('.truncate');
+            elements.forEach(el => {
+              el.classList.remove('truncate');
+              el.classList.add('break-words', 'whitespace-normal');
+            });
+          }
         });
         
         const link = document.createElement("a");
@@ -893,7 +901,7 @@ export default function FinanceApp() {
               onClick={() => openEditModal(t)}
               className={`p-3 rounded-lg shadow-sm border flex items-center justify-between cursor-pointer hover:opacity-80 transition ${theme.card}`}
             >
-              <div className="flex items-center gap-3 overflow-hidden">
+              <div className="flex items-center gap-3 overflow-hidden flex-1">
                 <button
                   onClick={(e) => toggleStatus(t.id, t.status, e)}
                   className="flex-shrink-0 transition active:scale-125"
@@ -908,25 +916,25 @@ export default function FinanceApp() {
                     />
                   )}
                 </button>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1 py-0.5">
                   <div className="flex items-center gap-2">
                     <p
-                      className={`font-semibold text-sm truncate ${
+                      className={`font-semibold text-sm break-words whitespace-normal leading-tight ${
                         t.status ? "opacity-40 line-through" : ""
                       }`}
                     >
                       {t.description}
                     </p>
                     {t.groupId && (
-                      <Repeat size={12} className="text-indigo-400" />
+                      <Repeat size={12} className="text-indigo-400 flex-shrink-0" />
                     )}
                   </div>
-                  <p className={`text-xs truncate ${theme.subtext}`}>
+                  <p className={`text-xs break-words whitespace-normal mt-0.5 ${theme.subtext}`}>
                     {fmtDate(t.date)} {t.entity && `• ${t.entity}`}
                   </p>
                 </div>
               </div>
-              <div className="flex flex-col items-end flex-shrink-0">
+              <div className="flex flex-col items-end flex-shrink-0 ml-3">
                 <span
                   className={`font-bold text-sm ${
                     t.status
