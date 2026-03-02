@@ -550,10 +550,11 @@ export default function FinanceApp() {
           logging: false,
           onclone: (document) => {
             // Remove as restrições de corte temporariamente apenas no momento de gerar a foto
-            const elements = document.querySelectorAll('.truncate');
+            const elements = document.querySelectorAll('.truncate, .overflow-hidden');
             elements.forEach(el => {
-              el.classList.remove('truncate');
+              el.classList.remove('truncate', 'overflow-hidden');
               el.classList.add('break-words', 'whitespace-normal');
+              el.style.overflow = 'visible';
             });
           }
         });
@@ -919,7 +920,7 @@ export default function FinanceApp() {
                 <div className="min-w-0 flex-1 py-0.5">
                   <div className="flex items-center gap-2">
                     <p
-                      className={`font-semibold text-sm break-words whitespace-normal leading-tight ${
+                      className={`font-semibold text-sm break-words whitespace-normal leading-tight pb-0.5 ${
                         t.status ? "opacity-40 line-through" : ""
                       }`}
                     >
@@ -929,7 +930,7 @@ export default function FinanceApp() {
                       <Repeat size={12} className="text-indigo-400 flex-shrink-0" />
                     )}
                   </div>
-                  <p className={`text-xs break-words whitespace-normal mt-0.5 ${theme.subtext}`}>
+                  <p className={`text-xs break-words whitespace-normal mt-0.5 pb-0.5 ${theme.subtext}`}>
                     {fmtDate(t.date)} {t.entity && `• ${t.entity}`}
                   </p>
                 </div>
