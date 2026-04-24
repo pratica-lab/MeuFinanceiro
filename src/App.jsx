@@ -1,5 +1,5 @@
 ```react
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   Plus, Trash2, CheckCircle, Circle, Search, Loader2,
   Sun, Moon, Repeat, X, Check, LogOut,
@@ -39,19 +39,22 @@ const ICONS = [
   "🏖️", "🐾", "🐶", "🎁", "🔧", "🛠️", "👗", "👟", "👶", "📦", "📄"
 ];
 
-// Utilitários de Formatação
+// Utilitários de Formatação (Refatorados para concatenação nativa para evitar bugs de parser no esbuild)
 const fmtMoney = (v) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v || 0);
 const fmtDate = (d) => d ? d.split("-").reverse().join("/") : "-";
 const fmtMonthYear = (str) => {
   if (!str) return "";
-  const [y, m] = str.split("-");
+  const parts = str.split("-");
+  const y = parts[0];
+  const m = parts[1];
   const months = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
-  return `${months[parseInt(m) - 1]} ${y}`;
+  return months[parseInt(m, 10) - 1] + " " + y;
 };
 
 const getDaysUntil = (dateStr) => {
   if (!dateStr) return null;
-  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const today = new Date(); 
+  today.setHours(0, 0, 0, 0);
   const d = new Date(dateStr + "T00:00:00");
   return Math.round((d - today) / 86400000);
 };
@@ -60,9 +63,9 @@ const getDaysUntil = (dateStr) => {
 const StatusBadge = ({ days, status }) => {
   if (status) return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-500">Pago</span>;
   if (days === null) return null;
-  if (days < 0) return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-500/20 text-red-500">{Math.abs(days)}d atraso</span>;
+  if (days < 0) return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-500/20 text-red-500">{Math.abs(days) + "d atraso"}</span>;
   if (days === 0) return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-500">Hoje</span>;
-  if (days <= 3) return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-500">{days}d</span>;
+  if (days <= 3) return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-500">{days + "d"}</span>;
   return null;
 };
 
@@ -156,7 +159,7 @@ export default function FinanceApp() {
     return () => unsubscribe();
   }, []);
 
-  // Banco de Dados Firestore (Sincronização em tempo real)
+  // Banco de Dados Firestore
   useEffect(() => {
     if (!user) return;
     const colRef = collection(db, "artifacts", appId, "users", user.uid, "transactions");
@@ -214,7 +217,7 @@ export default function FinanceApp() {
   const executeSave = async (mode) => {
     setIsSaving(true);
     try {
-      const basePath = `artifacts/${appId}/users/${user.uid}/transactions`;
+      const basePath = "artifacts/" + appId + "/users/" + user.uid + "/transactions";
       if (editingItem) {
         if (mode === "series" && editingItem.groupId) {
           const batch = writeBatch(db);
@@ -224,7 +227,7 @@ export default function FinanceApp() {
           
           series.forEach((item) => {
             const origMatch = item.description.match(seqRegex);
-            const finalDesc = origMatch ? `${cleanBase} ${origMatch[0].trim()}` : formData.description;
+            const finalDesc = origMatch ? cleanBase + " " + origMatch[0].trim() : formData.description;
             batch.update(doc(db, basePath, item.id), {
               description: finalDesc, amount: parseFloat(formData.amount),
               entity: formData.entity || "", notes: formData.notes || "", 
@@ -250,13 +253,13 @@ export default function FinanceApp() {
 
         // Se for Fixa, cria 120 meses (10 anos), se for parcelado pega a quantidade
         if (formData.recurrenceType === "fixed") { count = 120; isInfinite = true; } 
-        else if (formData.recurrenceType === "installments") { count = Math.max(2, parseInt(formData.repeatCount)); }
+        else if (formData.recurrenceType === "installments") { count = Math.max(2, parseInt(formData.repeatCount, 10)); }
         
         const groupId = count > 1 ? crypto.randomUUID() : null;
         
         for (let i = 0; i < count; i++) {
           const d = new Date(adj); d.setMonth(adj.getMonth() + i);
-          const descSuffix = (formData.recurrenceType === "installments") ? ` (${i + 1}/${count})` : "";
+          const descSuffix = (formData.recurrenceType === "installments") ? " (" + (i + 1) + "/" + count + ")" : "";
           
           batch.set(doc(collection(db, basePath)), {
             type: activeTab,
@@ -297,7 +300,8 @@ export default function FinanceApp() {
   const performDelete = async (ids) => {
     try {
       const batch = writeBatch(db);
-      ids.forEach((id) => batch.delete(doc(db, `artifacts/${appId}/users/${user.uid}/transactions`, id)));
+      const basePath = "artifacts/" + appId + "/users/" + user.uid + "/transactions";
+      ids.forEach((id) => batch.delete(doc(db, basePath, id)));
       await batch.commit();
       setDeleteModalOpen(false); setItemToDelete(null);
       showToast("Excluído com sucesso!");
@@ -309,7 +313,7 @@ export default function FinanceApp() {
     const ids = transactions.filter((t) => t.groupId === itemToDelete.groupId && t.date >= itemToDelete.date).map((t) => t.id);
     setDeleteModalOpen(false);
     setConfirmDialog({
-      title: "Excluir Série", message: `Deseja realmente excluir ${ids.length} itens da série?`,
+      title: "Excluir Série", message: "Deseja realmente excluir " + ids.length + " itens da série?",
       onConfirm: () => { performDelete(ids); setConfirmDialog(null); }
     });
   };
@@ -317,15 +321,16 @@ export default function FinanceApp() {
   const toggleStatus = async (id, current, e) => {
     e.stopPropagation();
     if (user) {
-      await updateDoc(doc(db, `artifacts/${appId}/users/${user.uid}/transactions`, id), { status: !current });
+      const itemPath = "artifacts/" + appId + "/users/" + user.uid + "/transactions";
+      await updateDoc(doc(db, itemPath, id), { status: !current });
       showToast(current ? "Marcado como aberto" : "Marcado como liquidado! ✓");
     }
   };
 
   const handleWhatsApp = (t, e) => {
     e.stopPropagation();
-    const msg = `Olá${t.entity ? ' ' + t.entity : ''}! Tudo bem?\nPassando para lembrar do valor de *${fmtMoney(t.amount)}* referente a *${t.description}* com vencimento em *${fmtDate(t.date)}*.\nQualquer dúvida, estou à disposição!`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+    const msg = "Olá" + (t.entity ? " " + t.entity : "") + "! Tudo bem?\nPassando para lembrar do valor de *" + fmtMoney(t.amount) + "* referente a *" + t.description + "* com vencimento em *" + fmtDate(t.date) + "*.\nQualquer dúvida, estou à disposição!";
+    window.open("https://wa.me/?text=" + encodeURIComponent(msg), "_blank");
   };
 
   // --- Processamento de Dados (Filtros e Cálculos) ---
@@ -415,14 +420,14 @@ export default function FinanceApp() {
       {/* Modal de Confirmação Customizado (Substitui confirm do Navegador) */}
       {confirmDialog && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, backdropFilter: "blur(8px)" }}>
-          <div className="slide-up" style={{ width: "100%", maxWidth: 360, background: T.card, borderRadius: 24, padding: "28px 24px", border: `1px solid ${T.border}` }}>
+          <div className="slide-up" style={{ width: "100%", maxWidth: 360, background: T.card, borderRadius: 24, padding: "28px 24px", border: "1px solid " + T.border }}>
             <div style={{ width: 48, height: 48, borderRadius: 16, background: "rgba(239,68,68,0.15)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
               <AlertCircle size={24} color="#ef4444" />
             </div>
             <h3 style={{ fontSize: 18, fontWeight: 800, textAlign: "center", margin: "0 0 8px", color: T.text }}>{confirmDialog.title}</h3>
             <p style={{ fontSize: 13, color: T.muted, textAlign: "center", margin: "0 0 24px", lineHeight: 1.5 }}>{confirmDialog.message}</p>
             <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => setConfirmDialog(null)} style={{ flex: 1, padding: "12px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.soft, color: T.text, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Cancelar</button>
+              <button onClick={() => setConfirmDialog(null)} style={{ flex: 1, padding: "12px", borderRadius: 12, border: "1px solid " + T.border, background: T.soft, color: T.text, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Cancelar</button>
               <button onClick={confirmDialog.onConfirm} style={{ flex: 1, padding: "12px", borderRadius: 12, border: "none", background: "#ef4444", color: "white", cursor: "pointer", fontSize: 13, fontWeight: 700 }}>Confirmar</button>
             </div>
           </div>
@@ -430,7 +435,7 @@ export default function FinanceApp() {
       )}
 
       {/* HEADER FIXO */}
-      <div style={{ background: T.surface, borderBottom: `1px solid ${T.border}`, padding: "12px 16px", position: "sticky", top: 0, zIndex: 20, backdropFilter: "blur(12px)" }}>
+      <div style={{ background: T.surface, borderBottom: "1px solid " + T.border, padding: "12px 16px", position: "sticky", top: 0, zIndex: 20, backdropFilter: "blur(12px)" }}>
         <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 34, height: 34, borderRadius: 10, background: "linear-gradient(135deg, #6366f1, #8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -458,36 +463,36 @@ export default function FinanceApp() {
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "16px", paddingBottom: 100 }}>
         
         {/* NAVEGADOR DE MÊS */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: T.surface, borderRadius: 16, padding: "10px 16px", border: `1px solid ${T.border}`, marginBottom: 16 }}>
-          <button onClick={() => { const [y, m] = selectedMonth.split("-"); setSelectedMonth(new Date(y, m - 2, 1).toISOString().slice(0, 7)); }} className="icon-btn" style={{ background: "none", border: "none", color: T.muted }}><ChevronLeft size={20} /></button>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: T.surface, borderRadius: 16, padding: "10px 16px", border: "1px solid " + T.border, marginBottom: 16 }}>
+          <button onClick={() => { const parts = selectedMonth.split("-"); setSelectedMonth(new Date(parts[0], parts[1] - 2, 1).toISOString().slice(0, 7)); }} className="icon-btn" style={{ background: "none", border: "none", color: T.muted }}><ChevronLeft size={20} /></button>
           <div style={{ textAlign: "center" }}>
             <div style={{ fontSize: 16, fontWeight: 800, color: T.text, textTransform: "capitalize" }}>{fmtMonthYear(selectedMonth)}</div>
           </div>
-          <button onClick={() => { const [y, m] = selectedMonth.split("-"); setSelectedMonth(new Date(y, m, 1).toISOString().slice(0, 7)); }} className="icon-btn" style={{ background: "none", border: "none", color: T.muted }}><ChevronRight size={20} /></button>
+          <button onClick={() => { const parts = selectedMonth.split("-"); setSelectedMonth(new Date(parts[0], parts[1], 1).toISOString().slice(0, 7)); }} className="icon-btn" style={{ background: "none", border: "none", color: T.muted }}><ChevronRight size={20} /></button>
         </div>
 
         {/* DASHBOARD COMPACTO (VISÃO ÚNICA) */}
         <div className="fade-in" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
           {/* Receitas */}
-          <div className="glow-green" style={{ background: "linear-gradient(135deg, rgba(16,185,129,0.1), rgba(16,185,129,0.05))", border: `1px solid rgba(16,185,129,0.2)`, borderRadius: 18, padding: "16px" }}>
+          <div className="glow-green" style={{ background: "linear-gradient(135deg, rgba(16,185,129,0.1), rgba(16,185,129,0.05))", border: "1px solid rgba(16,185,129,0.2)", borderRadius: 18, padding: "16px" }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#10b981", textTransform: "uppercase", marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}><TrendingUp size={12} /> A Receber</div>
             <div className="mono" style={{ fontSize: showBalanceValues ? 18 : 14, fontWeight: 800, color: T.text }}>{showBalanceValues ? fmtMoney(dashboardData.totalRec) : "R$ ••••"}</div>
             <div style={{ height: 4, background: "rgba(16,185,129,0.2)", borderRadius: 4, marginTop: 8, overflow: "hidden" }}>
-              <div style={{ width: `${dashboardData.pctRec}%`, height: "100%", background: "#10b981", borderRadius: 4, transition: "width 0.5s ease" }} />
+              <div style={{ width: dashboardData.pctRec + "%", height: "100%", background: "#10b981", borderRadius: 4, transition: "width 0.5s ease" }} />
             </div>
           </div>
           
           {/* Despesas */}
-          <div className="glow-red" style={{ background: "linear-gradient(135deg, rgba(239,68,68,0.1), rgba(239,68,68,0.05))", border: `1px solid rgba(239,68,68,0.2)`, borderRadius: 18, padding: "16px" }}>
+          <div className="glow-red" style={{ background: "linear-gradient(135deg, rgba(239,68,68,0.1), rgba(239,68,68,0.05))", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 18, padding: "16px" }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#ef4444", textTransform: "uppercase", marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}><TrendingDown size={12} /> A Pagar</div>
             <div className="mono" style={{ fontSize: showBalanceValues ? 18 : 14, fontWeight: 800, color: T.text }}>{showBalanceValues ? fmtMoney(dashboardData.totalPay) : "R$ ••••"}</div>
             <div style={{ height: 4, background: "rgba(239,68,68,0.2)", borderRadius: 4, marginTop: 8, overflow: "hidden" }}>
-              <div style={{ width: `${dashboardData.pctPay}%`, height: "100%", background: "#ef4444", borderRadius: 4, transition: "width 0.5s ease" }} />
+              <div style={{ width: dashboardData.pctPay + "%", height: "100%", background: "#ef4444", borderRadius: 4, transition: "width 0.5s ease" }} />
             </div>
           </div>
 
           {/* Saldo Final */}
-          <div style={{ gridColumn: "1 / -1", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 18, padding: "16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ gridColumn: "1 / -1", background: T.surface, border: "1px solid " + T.border, borderRadius: 18, padding: "16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
               <div style={{ fontSize: 12, fontWeight: 600, color: T.muted, textTransform: "uppercase", marginBottom: 2 }}>Saldo Projetado</div>
               <div className="mono" style={{ fontSize: showBalanceValues ? 24 : 18, fontWeight: 800, color: dashboardData.balance >= 0 ? "#10b981" : "#ef4444", letterSpacing: "-0.5px" }}>
@@ -503,7 +508,7 @@ export default function FinanceApp() {
         </div>
 
         {/* ABAS DA LISTA DE LANÇAMENTOS */}
-        <div style={{ display: "flex", background: T.surface, borderRadius: 12, padding: 4, marginBottom: 12, border: `1px solid ${T.border}` }}>
+        <div style={{ display: "flex", background: T.surface, borderRadius: 12, padding: 4, marginBottom: 12, border: "1px solid " + T.border }}>
           {[{ id: "receivable", l: "Receitas", c: "#10b981" }, { id: "payable", l: "Despesas", c: "#ef4444" }].map((tab) => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, transition: "all 0.2s", background: activeTab === tab.id ? (tab.id === "receivable" ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.15)") : "transparent", color: activeTab === tab.id ? tab.c : T.muted }}>
               {tab.l}
@@ -513,12 +518,12 @@ export default function FinanceApp() {
 
         {/* FILTROS E BUSCA */}
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-          <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "0 12px" }}>
+          <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, background: T.surface, border: "1px solid " + T.border, borderRadius: 12, padding: "0 12px" }}>
             <Search size={16} color={T.muted} />
             <input placeholder="Buscar..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ flex: 1, padding: "12px 0", background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 14 }} />
             {searchTerm && <button onClick={() => setSearchTerm("")} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer" }}><X size={14} /></button>}
           </div>
-          <div style={{ display: "flex", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+          <div style={{ display: "flex", background: T.surface, border: "1px solid " + T.border, borderRadius: 12, overflow: "hidden" }}>
             {[{ v: "all", l: "T" }, { v: "paid", l: "P" }, { v: "open", l: "A" }].map((opt) => (
               <button key={opt.v} onClick={() => setFilterStatus(opt.v)} style={{ padding: "0 14px", border: "none", background: filterStatus === opt.v ? "#6366f1" : "transparent", color: filterStatus === opt.v ? "white" : T.muted, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{opt.l}</button>
             ))}
@@ -533,7 +538,7 @@ export default function FinanceApp() {
             const isExpanded = expandId === t.id;
 
             return (
-              <div key={t.id} className="fade-in" style={{ background: T.card, border: `1px solid ${t.priority ? "#f59e0b" : isOverdue ? "rgba(239,68,68,0.4)" : T.border}`, borderRadius: 16, overflow: "hidden", boxShadow: t.priority ? "inset 3px 0 0 #f59e0b" : "none" }}>
+              <div key={t.id} className="fade-in" style={{ background: T.card, border: "1px solid " + (t.priority ? "#f59e0b" : (isOverdue ? "rgba(239,68,68,0.4)" : T.border)), borderRadius: 16, overflow: "hidden", boxShadow: t.priority ? "inset 3px 0 0 #f59e0b" : "none" }}>
                 <div onClick={() => setExpandId(isExpanded ? null : t.id)} style={{ padding: "14px", cursor: "pointer", display: "flex", gap: 12, alignItems: "flex-start" }}>
                   
                   {/* Toggle Circular */}
@@ -603,7 +608,7 @@ export default function FinanceApp() {
       {/* ─── MODAL DE ADIÇÃO / EDIÇÃO ─── */}
       {isModalOpen && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 50, display: "flex", alignItems: "flex-end", justifyContent: "center", backdropFilter: "blur(8px)" }}>
-          <div className="slide-up" style={{ width: "100%", maxWidth: 520, background: T.card, borderRadius: "24px 24px 0 0", padding: "24px 20px 40px", border: `1px solid ${T.border}`, borderBottom: "none", boxShadow: "0 -20px 60px rgba(0,0,0,0.4)", maxHeight: "90vh", overflowY: "auto" }}>
+          <div className="slide-up" style={{ width: "100%", maxWidth: 520, background: T.card, borderRadius: "24px 24px 0 0", padding: "24px 20px 40px", border: "1px solid " + T.border, borderBottom: "none", boxShadow: "0 -20px 60px rgba(0,0,0,0.4)", maxHeight: "90vh", overflowY: "auto" }}>
             <div style={{ width: 40, height: 4, background: T.border, borderRadius: 99, margin: "0 auto 20px" }} />
             
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
@@ -629,7 +634,7 @@ export default function FinanceApp() {
                 <label style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 8 }}>Ícone Visual</label>
                 <div className="no-scrollbar" style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
                   {ICONS.map(ic => (
-                    <button type="button" key={ic} onClick={() => setFormData({ ...formData, icon: ic })} style={{ width: 44, height: 44, flexShrink: 0, borderRadius: 12, border: `2px solid ${formData.icon === ic ? "#6366f1" : T.border}`, background: formData.icon === ic ? "rgba(99,102,241,0.15)" : T.soft, fontSize: 20, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+                    <button type="button" key={ic} onClick={() => setFormData({ ...formData, icon: ic })} style={{ width: 44, height: 44, flexShrink: 0, borderRadius: 12, border: "2px solid " + (formData.icon === ic ? "#6366f1" : T.border), background: formData.icon === ic ? "rgba(99,102,241,0.15)" : T.soft, fontSize: 20, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
                       {ic}
                     </button>
                   ))}
@@ -638,32 +643,32 @@ export default function FinanceApp() {
 
               <div>
                 <label style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.5px" }}>Descrição</label>
-                <input value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} required placeholder="Ex: Conta de Luz, Aluguel..." style={{ width: "100%", marginTop: 6, padding: "14px", background: T.input, border: `1px solid ${T.border}`, borderRadius: 12, color: T.text, fontSize: 15, outline: "none", boxSizing: "border-box" }} />
+                <input value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} required placeholder="Ex: Conta de Luz, Aluguel..." style={{ width: "100%", marginTop: 6, padding: "14px", background: T.input, border: "1px solid " + T.border, borderRadius: 12, color: T.text, fontSize: 15, outline: "none", boxSizing: "border-box" }} />
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.5px" }}>Valor (R$)</label>
-                  <input type="number" step="0.01" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} required placeholder="0,00" className="mono" style={{ width: "100%", marginTop: 6, padding: "14px", background: T.input, border: `1px solid ${T.border}`, borderRadius: 12, color: T.text, fontSize: 15, outline: "none", boxSizing: "border-box", fontWeight: 700 }} />
+                  <input type="number" step="0.01" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} required placeholder="0,00" className="mono" style={{ width: "100%", marginTop: 6, padding: "14px", background: T.input, border: "1px solid " + T.border, borderRadius: 12, color: T.text, fontSize: 15, outline: "none", boxSizing: "border-box", fontWeight: 700 }} />
                 </div>
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.5px" }}>Data Vencimento</label>
-                  <input type="date" value={formData.date} onChange={(e) => setFormData({ ...formData, date: e.target.value })} required style={{ width: "100%", marginTop: 6, padding: "14px", background: T.input, border: `1px solid ${T.border}`, borderRadius: 12, color: T.text, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+                  <input type="date" value={formData.date} onChange={(e) => setFormData({ ...formData, date: e.target.value })} required style={{ width: "100%", marginTop: 6, padding: "14px", background: T.input, border: "1px solid " + T.border, borderRadius: 12, color: T.text, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
                 </div>
               </div>
 
               <div>
                 <label style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.5px" }}>Entidade (Devedor/Credor)</label>
-                <input value={formData.entity} onChange={(e) => setFormData({ ...formData, entity: e.target.value })} placeholder="Nome da pessoa ou empresa..." style={{ width: "100%", marginTop: 6, padding: "14px", background: T.input, border: `1px solid ${T.border}`, borderRadius: 12, color: T.text, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+                <input value={formData.entity} onChange={(e) => setFormData({ ...formData, entity: e.target.value })} placeholder="Nome da pessoa ou empresa..." style={{ width: "100%", marginTop: 6, padding: "14px", background: T.input, border: "1px solid " + T.border, borderRadius: 12, color: T.text, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
               </div>
 
               {/* Controles de Status */}
               <div style={{ display: "flex", gap: 10 }}>
-                <button type="button" onClick={() => setFormData({ ...formData, priority: !formData.priority })} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px", borderRadius: 12, border: `1px solid ${formData.priority ? "#f59e0b" : T.border}`, background: formData.priority ? "rgba(245,158,11,0.15)" : T.soft, color: formData.priority ? "#f59e0b" : T.text, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
+                <button type="button" onClick={() => setFormData({ ...formData, priority: !formData.priority })} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px", borderRadius: 12, border: "1px solid " + (formData.priority ? "#f59e0b" : T.border), background: formData.priority ? "rgba(245,158,11,0.15)" : T.soft, color: formData.priority ? "#f59e0b" : T.text, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
                   <Star size={16} fill={formData.priority ? "#f59e0b" : "none"} /> Prioridade
                 </button>
                 {!editingItem && (
-                  <button type="button" onClick={() => setFormData({ ...formData, status: !formData.status })} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px", borderRadius: 12, border: `1px solid ${formData.status ? "#10b981" : T.border}`, background: formData.status ? "rgba(16,185,129,0.15)" : T.soft, color: formData.status ? "#10b981" : T.text, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
+                  <button type="button" onClick={() => setFormData({ ...formData, status: !formData.status })} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px", borderRadius: 12, border: "1px solid " + (formData.status ? "#10b981" : T.border), background: formData.status ? "rgba(16,185,129,0.15)" : T.soft, color: formData.status ? "#10b981" : T.text, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
                     <Check size={16} /> Já liquidado
                   </button>
                 )}
@@ -671,11 +676,11 @@ export default function FinanceApp() {
 
               {/* Configuração de Recorrência Melhorada */}
               {!editingItem && (
-                <div style={{ background: T.soft, borderRadius: 14, padding: "16px", border: `1px solid ${T.border}` }}>
+                <div style={{ background: T.soft, borderRadius: 14, padding: "16px", border: "1px solid " + T.border }}>
                   <label style={{ fontSize: 12, fontWeight: 700, color: T.text, display: "block", marginBottom: 12 }}>Como funciona essa conta?</label>
                   <div style={{ display: "flex", gap: 8, marginBottom: formData.recurrenceType === "installments" ? 16 : 0 }}>
                     {[{ id: "none", l: "Única Vez" }, { id: "fixed", l: "Conta Fixa" }, { id: "installments", l: "Parcelado" }].map(rt => (
-                      <button type="button" key={rt.id} onClick={() => setFormData({ ...formData, recurrenceType: rt.id })} style={{ flex: 1, padding: "8px", borderRadius: 8, border: `1px solid ${formData.recurrenceType === rt.id ? "#6366f1" : T.border}`, background: formData.recurrenceType === rt.id ? "rgba(99,102,241,0.15)" : "transparent", color: formData.recurrenceType === rt.id ? "#6366f1" : T.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                      <button type="button" key={rt.id} onClick={() => setFormData({ ...formData, recurrenceType: rt.id })} style={{ flex: 1, padding: "8px", borderRadius: 8, border: "1px solid " + (formData.recurrenceType === rt.id ? "#6366f1" : T.border), background: formData.recurrenceType === rt.id ? "rgba(99,102,241,0.15)" : "transparent", color: formData.recurrenceType === rt.id ? "#6366f1" : T.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                         {rt.l}
                       </button>
                     ))}
@@ -691,7 +696,7 @@ export default function FinanceApp() {
                     <div className="fade-in">
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                         <span style={{ fontSize: 12, color: T.muted }}>Quantidade de meses</span>
-                        <span style={{ fontSize: 16, fontWeight: 800, color: "#6366f1" }}>{formData.repeatCount}x</span>
+                        <span style={{ fontSize: 16, fontWeight: 800, color: "#6366f1" }}>{formData.repeatCount + "x"}</span>
                       </div>
                       <input type="range" min="2" max="48" value={formData.repeatCount} onChange={(e) => setFormData({ ...formData, repeatCount: e.target.value })} style={{ width: "100%", cursor: "pointer" }} />
                     </div>
@@ -701,7 +706,7 @@ export default function FinanceApp() {
 
               {/* Botões do Formulário */}
               <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-                <button type="button" onClick={closeModal} style={{ flex: 1, padding: "16px", borderRadius: 14, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+                <button type="button" onClick={closeModal} style={{ flex: 1, padding: "16px", borderRadius: 14, border: "1px solid " + T.border, background: "transparent", color: T.text, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
                   Cancelar
                 </button>
                 <button type="submit" disabled={isSaving} style={{ flex: 2, padding: "16px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "white", fontSize: 14, fontWeight: 800, cursor: "pointer", boxShadow: "0 8px 24px rgba(99,102,241,0.4)", opacity: isSaving ? 0.7 : 1 }}>
@@ -716,14 +721,14 @@ export default function FinanceApp() {
       {/* MODAL: EDIÇÃO RECORRENTE */}
       {recurringEditModalOpen && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, backdropFilter: "blur(8px)" }}>
-          <div className="slide-up" style={{ width: "100%", maxWidth: 380, background: T.card, borderRadius: 24, padding: "28px 24px", border: `1px solid ${T.border}` }}>
+          <div className="slide-up" style={{ width: "100%", maxWidth: 380, background: T.card, borderRadius: 24, padding: "28px 24px", border: "1px solid " + T.border }}>
             <div style={{ width: 48, height: 48, borderRadius: 16, background: "rgba(99,102,241,0.15)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
               <Repeat size={22} color="#6366f1" />
             </div>
             <h3 style={{ fontSize: 18, fontWeight: 800, textAlign: "center", margin: "0 0 8px" }}>Edição de Série</h3>
             <p style={{ fontSize: 13, color: T.muted, textAlign: "center", margin: "0 0 24px" }}>Deseja aplicar as alterações apenas a este mês ou a todos os próximos?</p>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <button onClick={() => executeSave("single")} style={{ padding: "14px", borderRadius: 14, border: `1px solid ${T.border}`, background: T.soft, color: T.text, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>Apenas este mês</button>
+              <button onClick={() => executeSave("single")} style={{ padding: "14px", borderRadius: 14, border: "1px solid " + T.border, background: T.soft, color: T.text, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>Apenas este mês</button>
               <button onClick={() => executeSave("series")} style={{ padding: "14px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>Este e os próximos</button>
               <button onClick={() => setRecurringEditModalOpen(false)} style={{ padding: "10px", background: "none", border: "none", color: T.muted, fontSize: 13, cursor: "pointer" }}>Cancelar</button>
             </div>
@@ -734,14 +739,14 @@ export default function FinanceApp() {
       {/* MODAL: EXCLUSÃO RECORRENTE */}
       {deleteModalOpen && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, backdropFilter: "blur(8px)" }}>
-          <div className="slide-up" style={{ width: "100%", maxWidth: 380, background: T.card, borderRadius: 24, padding: "28px 24px", border: `1px solid rgba(239,68,68,0.2)` }}>
+          <div className="slide-up" style={{ width: "100%", maxWidth: 380, background: T.card, borderRadius: 24, padding: "28px 24px", border: "1px solid rgba(239,68,68,0.2)" }}>
             <div style={{ width: 48, height: 48, borderRadius: 16, background: "rgba(239,68,68,0.15)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
               <Trash2 size={22} color="#ef4444" />
             </div>
             <h3 style={{ fontSize: 18, fontWeight: 800, textAlign: "center", margin: "0 0 8px", color: "#ef4444" }}>Excluir Série</h3>
             <p style={{ fontSize: 13, color: T.muted, textAlign: "center", margin: "0 0 24px" }}>Este item pertence a uma série. O que deseja fazer?</p>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <button onClick={() => performDelete([itemToDelete.id])} style={{ padding: "14px", borderRadius: 14, border: `1px solid ${T.border}`, background: T.soft, color: T.text, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>Excluir apenas este</button>
+              <button onClick={() => performDelete([itemToDelete.id])} style={{ padding: "14px", borderRadius: 14, border: "1px solid " + T.border, background: T.soft, color: T.text, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>Excluir apenas este</button>
               <button onClick={handleDeleteSeries} style={{ padding: "14px", borderRadius: 14, border: "none", background: "#ef4444", color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>Excluir este e futuros</button>
               <button onClick={() => setDeleteModalOpen(false)} style={{ padding: "10px", background: "none", border: "none", color: T.muted, fontSize: 13, cursor: "pointer" }}>Cancelar</button>
             </div>
@@ -751,3 +756,6 @@ export default function FinanceApp() {
     </>
   );
 }
+
+
+```
