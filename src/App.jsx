@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   Plus,
   Trash2,
@@ -29,6 +29,19 @@ import {
   Calendar,
   DollarSign,
   AlignLeft,
+  PieChart,
+  TrendingUp,
+  TrendingDown,
+  Wallet,
+  ArrowRight,
+  X,
+  ChevronRight,
+  MoreVertical,
+  Check,
+  Settings,
+  Bell,
+  CreditCard,
+  Tag
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import {
@@ -49,9 +62,13 @@ import {
   onSnapshot,
   writeBatch,
   query,
+  orderBy,
+  where,
+  addDoc,
+  serverTimestamp
 } from "firebase/firestore";
 
-// --- CONFIGURAÇÃO DO FIREBASE ---
+// --- CONFIGURAÇÃO DO FIREBASE (MANTIDA) ---
 const firebaseConfig = {
   apiKey: "AIzaSyDqY-cooGvIPMykBfzdkdKO5EHd9vweTz4",
   authDomain: "controle-financeiro-gavs.firebaseapp.com",
@@ -68,50 +85,84 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
+// --- COMPONENTES AUXILIARES ---
+
+const Card = ({ children, className = "", isDarkMode }) => (
+  <div className={`rounded-2xl border transition-all duration-300 ${
+    isDarkMode 
+      ? "bg-slate-800/50 border-slate-700/50 backdrop-blur-md shadow-xl" 
+      : "bg-white border-gray-100 shadow-sm"
+  } ${className}`}>
+    {children}
+  </div>
+);
+
+const Button = ({ children, onClick, variant = "primary", className = "", disabled = false, icon: Icon }) => {
+  const variants = {
+    primary: "bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200 dark:shadow-none",
+    secondary: "bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-slate-100",
+    danger: "bg-rose-500 hover:bg-rose-600 text-white",
+    ghost: "bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300",
+    outline: "bg-transparent border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800"
+  };
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-medium transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100 ${variants[variant]} ${className}`}
+    >
+      {Icon && <Icon size={18} />}
+      {children}
+    </button>
+  );
+};
+
+const Badge = ({ children, color = "indigo" }) => {
+  const colors = {
+    indigo: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300",
+    green: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+    red: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300",
+    amber: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+    slate: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+  };
+  return (
+    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${colors[color]}`}>
+      {children}
+    </span>
+  );
+};
+
+// --- APP PRINCIPAL ---
+
 export default function FinanceApp() {
+  // --- ESTADOS ---
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [authLoading, setAuthLoading] = useState(false);
-  const [loginError, setLoginError] = useState(null);
-  const [errorMsg, setErrorMsg] = useState(null);
   const [transactions, setTransactions] = useState([]);
-
-  // Estados da UI e Filtros
-  const [activeTab, setActiveTab] = useState("receivable");
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState(null);
-  const [isSaving, setIsSaving] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedMonth, setSelectedMonth] = useState(
-    new Date().toISOString().slice(0, 7)
-  );
-  const [showExportMenu, setShowExportMenu] = useState(false);
-  const listRef = useRef(null);
-
-  // NOVOS ESTADOS PARA FILTRO E ORDENAÇÃO
-  const [filterStatus, setFilterStatus] = useState("all"); // 'all', 'paid', 'open'
-  const [sortBy, setSortBy] = useState("date"); // 'date', 'created', 'alpha', 'amount', 'entity'
-
-  // Estado para Edição Recorrente
-  const [recurringEditModalOpen, setRecurringEditModalOpen] = useState(false);
-
-  // Persistência do Tema
+  const [activeTab, setActiveTab] = useState("receivable"); // 'receivable' ou 'payable'
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("financeAppTheme");
-      return saved === "dark";
+      return localStorage.getItem("financeAppTheme") === "dark";
     }
     return false;
   });
 
-  useEffect(() => {
-    localStorage.setItem("financeAppTheme", isDarkMode ? "dark" : "light");
-  }, [isDarkMode]);
-
+  // UI States
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [sortBy, setSortBy] = useState("date");
+  const [showExportMenu, setShowExportMenu] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState(null);
-  const [importModalOpen, setImportModalOpen] = useState(false);
-  const [csvFile, setCsvFile] = useState(null);
+  const [recurringEditModalOpen, setRecurringEditModalOpen] = useState(false);
+
+  const listRef = useRef(null);
 
   const [formData, setFormData] = useState({
     description: "",
@@ -120,34 +171,18 @@ export default function FinanceApp() {
     date: new Date().toISOString().split("T")[0],
     repeatCount: 1,
     status: false,
+    category: "Geral"
   });
 
-  // --- Efeitos ---
+  // --- EFEITOS ---
   useEffect(() => {
-    document.title = "Meu Financeiro Seguro";
-
-    if (!document.querySelector('script[src*="tailwindcss"]')) {
-      const script = document.createElement("script");
-      script.src = "https://cdn.tailwindcss.com";
-      document.head.appendChild(script);
+    localStorage.setItem("financeAppTheme", isDarkMode ? "dark" : "light");
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
     }
-
-    if (!document.querySelector('script[src*="html2canvas"]')) {
-      const script = document.createElement("script");
-      script.src =
-        "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-      document.head.appendChild(script);
-    }
-
-    const style = document.createElement("style");
-    style.innerHTML = `
-      #csb-navigation, #csb-status-bar, #__codesandbox_preview_navigation, 
-      a[href*="codesandbox.io"], div[class*="codesandbox"], iframe[src*="codesandbox"] { 
-        display: none !important; opacity: 0 !important; pointer-events: none !important; visibility: hidden !important;
-      }
-    `;
-    document.head.appendChild(style);
-  }, []);
+  }, [isDarkMode]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
@@ -159,91 +194,118 @@ export default function FinanceApp() {
 
   useEffect(() => {
     if (!user) return;
-    const colRef = collection(
-      db,
-      "artifacts",
-      appId,
-      "users",
-      user.uid,
-      "transactions"
-    );
-    const unsubscribe = onSnapshot(
-      colRef,
-      (snapshot) => {
-        const data = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-        setTransactions(data);
-      },
-      (err) => {
-        console.error("Erro Firestore:", err);
-        if (err.code === "permission-denied") {
-          onSnapshot(
-            collection(db, "users", user.uid, "transactions"),
-            (snap) => {
-              setTransactions(
-                snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-              );
-            }
-          );
-        }
-      }
-    );
+    const basePath = `artifacts/${appId}/users/${user.uid}/transactions`;
+    const colRef = collection(db, basePath);
+    
+    const unsubscribe = onSnapshot(colRef, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setTransactions(data);
+    }, (err) => {
+      console.error("Firestore Error:", err);
+    });
+    
     return () => unsubscribe();
   }, [user]);
 
-  // --- Funções ---
+  // Carregar scripts externos (Tailwind e html2canvas)
+  useEffect(() => {
+    if (!document.querySelector('script[src*="tailwindcss"]')) {
+      const script = document.createElement("script");
+      script.src = "https://cdn.tailwindcss.com";
+      document.head.appendChild(script);
+    }
+    if (!document.querySelector('script[src*="html2canvas"]')) {
+      const script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+      document.head.appendChild(script);
+    }
+  }, []);
+
+  // --- LÓGICA DE DADOS ---
+  const filteredTransactions = useMemo(() => {
+    return transactions
+      .filter(t => t.type === activeTab)
+      .filter(t => t.date.startsWith(selectedMonth))
+      .filter(t => {
+        if (filterStatus === "paid") return t.status === true;
+        if (filterStatus === "open") return t.status === false;
+        return true;
+      })
+      .filter(t => {
+        const search = searchTerm.toLowerCase();
+        return (
+          t.description.toLowerCase().includes(search) ||
+          (t.entity && t.entity.toLowerCase().includes(search))
+        );
+      })
+      .sort((a, b) => {
+        if (sortBy === "date") return b.date.localeCompare(a.date);
+        if (sortBy === "amount") return b.amount - a.amount;
+        if (sortBy === "alpha") return a.description.localeCompare(b.description);
+        return 0;
+      });
+  }, [transactions, activeTab, selectedMonth, filterStatus, searchTerm, sortBy]);
+
+  const stats = useMemo(() => {
+    const monthData = transactions.filter(t => t.date.startsWith(selectedMonth));
+    const incomes = monthData.filter(t => t.type === "receivable").reduce((acc, t) => acc + t.amount, 0);
+    const expenses = monthData.filter(t => t.type === "payable").reduce((acc, t) => acc + t.amount, 0);
+    const pendingIncomes = monthData.filter(t => t.type === "receivable" && !t.status).reduce((acc, t) => acc + t.amount, 0);
+    const pendingExpenses = monthData.filter(t => t.type === "payable" && !t.status).reduce((acc, t) => acc + t.amount, 0);
+    
+    return { incomes, expenses, balance: incomes - expenses, pendingIncomes, pendingExpenses };
+  }, [transactions, selectedMonth]);
+
+  // --- AÇÕES ---
   const handleGoogleLogin = async () => {
-    setLoginError(null);
     setAuthLoading(true);
     const provider = new GoogleAuthProvider();
     try {
       await setPersistence(auth, browserLocalPersistence);
       await signInWithPopup(auth, provider);
     } catch (error) {
-      setLoginError({ type: "general", message: error.message });
+      console.error("Login Error:", error);
     } finally {
       setAuthLoading(false);
     }
   };
 
   const handleLogout = async () => {
-    if (confirm("Deseja realmente sair?")) {
+    if (window.confirm("Deseja realmente sair?")) {
       await signOut(auth);
       setTransactions([]);
     }
   };
 
-  const openEditModal = (item) => {
-    setEditingItem(item);
-    setFormData({
-      description: item.description || "",
-      amount: item.amount || "",
-      entity: item.entity || "",
-      date: item.date || new Date().toISOString().split("T")[0],
-      repeatCount: 1,
-      status: item.status || false,
-    });
-    setIsModalOpen(true);
+  const toggleStatus = async (item) => {
+    const basePath = `artifacts/${appId}/users/${user.uid}/transactions`;
+    const docRef = doc(db, basePath, item.id);
+    await updateDoc(docRef, { status: !item.status });
   };
 
-  const closeModal = () => {
-    setIsModalOpen(false);
-    setEditingItem(null);
-    setFormData({
-      description: "",
-      amount: "",
-      entity: "",
-      date: new Date().toISOString().split("T")[0],
-      repeatCount: 1,
-      status: false,
-    });
+  const handleDelete = async (mode = "single") => {
+    if (!itemToDelete) return;
+    const basePath = `artifacts/${appId}/users/${user.uid}/transactions`;
+    
+    try {
+      if (mode === "series" && itemToDelete.groupId) {
+        const batch = writeBatch(db);
+        const series = transactions.filter(t => t.groupId === itemToDelete.groupId && t.date >= itemToDelete.date);
+        series.forEach(t => batch.delete(doc(db, basePath, t.id)));
+        await batch.commit();
+      } else {
+        await deleteDoc(doc(db, basePath, itemToDelete.id));
+      }
+    } catch (err) {
+      console.error("Delete Error:", err);
+    } finally {
+      setDeleteModalOpen(false);
+      setItemToDelete(null);
+    }
   };
 
   const onFormSubmit = async (e) => {
     e.preventDefault();
-    if (!user) return;
     if (editingItem && editingItem.groupId) {
       setRecurringEditModalOpen(true);
     } else {
@@ -253,55 +315,34 @@ export default function FinanceApp() {
 
   const executeSave = async (mode) => {
     setIsSaving(true);
+    const basePath = `artifacts/${appId}/users/${user.uid}/transactions`;
+    
     try {
-      const basePath = `artifacts/${appId}/users/${user.uid}/transactions`;
-
       if (editingItem) {
         if (mode === "series" && editingItem.groupId) {
-          // --- LÓGICA DE ATUALIZAÇÃO EM SÉRIE INTELIGENTE ---
           const batch = writeBatch(db);
-          const series = transactions.filter(
-            (t) =>
-              t.groupId === editingItem.groupId && t.date >= editingItem.date
-          );
-
-          // Regex para encontrar padrões como (1/3), (02/12), etc no final da string
+          const series = transactions.filter(t => t.groupId === editingItem.groupId && t.date >= editingItem.date);
           const sequenceRegex = /\s*\(\d+\/\d+\)$/;
+          const cleanDesc = formData.description.replace(sequenceRegex, "").trim();
 
-          // Remove a numeração da descrição nova que o usuário digitou (se houver)
-          const cleanBaseDescription = formData.description
-            .replace(sequenceRegex, "")
-            .trim();
-
-          series.forEach((item) => {
-            const docRef = doc(db, basePath, item.id);
-
-            // Tenta encontrar a numeração original do item no banco de dados
-            const originalMatch = item.description.match(sequenceRegex);
-
-            // Se encontrou uma numeração original, anexa ela ao novo nome base
-            let finalDescription = cleanBaseDescription;
-            if (originalMatch) {
-              finalDescription = `${cleanBaseDescription} ${originalMatch[0].trim()}`;
-            } else {
-              // Fallback: se não tinha numeração, usa o que o usuário digitou
-              finalDescription = formData.description;
-            }
-
-            batch.update(docRef, {
-              description: finalDescription,
+          series.forEach(t => {
+            const originalMatch = t.description.match(sequenceRegex);
+            const finalDesc = originalMatch ? `${cleanDesc} ${originalMatch[0].trim()}` : formData.description;
+            batch.update(doc(db, basePath, t.id), {
+              description: finalDesc,
               amount: parseFloat(formData.amount),
               entity: formData.entity || "",
+              category: formData.category
             });
           });
           await batch.commit();
         } else {
-          const docRef = doc(db, basePath, editingItem.id);
-          await updateDoc(docRef, {
+          await updateDoc(doc(db, basePath, editingItem.id), {
             description: formData.description,
             amount: parseFloat(formData.amount),
             entity: formData.entity || "",
             date: formData.date,
+            category: formData.category
           });
         }
       } else {
@@ -317,867 +358,543 @@ export default function FinanceApp() {
           const newDocRef = doc(collection(db, basePath));
           batch.set(newDocRef, {
             type: activeTab,
-            description:
-              formData.description +
-              (formData.repeatCount > 1
-                ? ` (${i + 1}/${formData.repeatCount})`
-                : ""),
+            description: formData.description + (formData.repeatCount > 1 ? ` (${i + 1}/${formData.repeatCount})` : ""),
             amount: parseFloat(formData.amount),
             entity: formData.entity || "",
             date: d.toISOString().split("T")[0],
             status: formData.status,
             groupId: groupId,
+            category: formData.category,
             createdAt: new Date().toISOString(),
           });
         }
         await batch.commit();
       }
-      setRecurringEditModalOpen(false);
       closeModal();
     } catch (err) {
-      alert("Erro ao salvar: " + err.message);
-    }
-    setIsSaving(false);
-  };
-
-  const handleDeleteRequest = (item, e) => {
-    e.stopPropagation();
-    setItemToDelete(item);
-    if (item.groupId) setDeleteModalOpen(true);
-    else if (confirm("Deseja excluir este item?")) performDelete([item.id]);
-  };
-
-  const performDelete = async (ids) => {
-    if (!user) return;
-    try {
-      const batch = writeBatch(db);
-      ids.forEach((id) => {
-        const docRef = doc(
-          db,
-          `artifacts/${appId}/users/${user.uid}/transactions`,
-          id
-        );
-        batch.delete(docRef);
-      });
-      await batch.commit();
-      setDeleteModalOpen(false);
-      setItemToDelete(null);
-    } catch (err) {
-      alert("Erro ao excluir");
+      console.error("Save Error:", err);
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  const handleDeleteSeries = () => {
-    if (!itemToDelete?.groupId) return;
-    const ids = transactions
-      .filter(
-        (t) => t.groupId === itemToDelete.groupId && t.date >= itemToDelete.date
-      )
-      .map((t) => t.id);
-    if (confirm(`Excluir ${ids.length} itens futuros?`)) performDelete(ids);
-  };
-
-  const toggleStatus = async (id, current, e) => {
-    e.stopPropagation();
-    if (user) {
-      const docRef = doc(
-        db,
-        `artifacts/${appId}/users/${user.uid}/transactions`,
-        id
-      );
-      await updateDoc(docRef, { status: !current });
-    }
-  };
-
-  const handleImportCSV = async (e) => {
-    e.preventDefault();
-    if (!csvFile || !user) return;
-    setIsSaving(true);
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      try {
-        const lines = event.target.result.split("\n");
-        const batch = writeBatch(db);
-        const colRef = collection(
-          db,
-          "artifacts",
-          appId,
-          "users",
-          user.uid,
-          "transactions"
-        );
-        for (let i = 1; i < lines.length; i++) {
-          const cols = lines[i].trim().split(",");
-          if (cols.length < 3) continue;
-          const val = parseFloat(
-            cols[1]?.replace("R$", "").replace(",", ".") || 0
-          );
-          if (!isNaN(val)) {
-            batch.set(doc(colRef), {
-              type: activeTab,
-              description: cols[0]?.replace(/"/g, "") || "Importado",
-              amount: val,
-              date: cols[2]?.trim() || new Date().toISOString().split("T")[0],
-              entity: cols[3]?.replace(/"/g, "").trim() || "",
-              status: false,
-              createdAt: new Date().toISOString(),
-            });
-          }
-        }
-        await batch.commit();
-        alert("Importado com sucesso!");
-        setImportModalOpen(false);
-      } catch (err) {
-        alert("Erro: " + err.message);
-      } finally {
-        setIsSaving(false);
-      }
-    };
-    reader.readAsText(csvFile);
-  };
-
-  // --- LÓGICA DE FILTRAGEM E ORDENAÇÃO ATUALIZADA ---
-  const filteredTransactions = useMemo(() => {
-    let result = transactions.filter((t) => t.type === activeTab);
-
-    // Filtro de Mês (se houver mês selecionado)
-    if (selectedMonth) {
-      result = result.filter((t) => t.date.startsWith(selectedMonth));
-    }
-
-    // Filtro de Busca
-    if (searchTerm) {
-      const s = searchTerm.toLowerCase();
-      result = result.filter(
-        (t) =>
-          (t.description || "").toLowerCase().includes(s) ||
-          (t.entity || "").toLowerCase().includes(s)
-      );
-    }
-
-    // Filtro de Status (Novo)
-    if (filterStatus !== "all") {
-      const isPaid = filterStatus === "paid";
-      result = result.filter((t) => t.status === isPaid);
-    }
-
-    // Ordenação (Novo)
-    return result.sort((a, b) => {
-      switch (sortBy) {
-        case "date":
-          return new Date(a.date) - new Date(b.date);
-        case "created":
-          return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
-        case "amount":
-          return b.amount - a.amount; // Maior valor primeiro
-        case "alpha":
-          return (a.description || "").localeCompare(b.description || "");
-        case "entity":
-          return (a.entity || "").localeCompare(b.entity || "");
-        default:
-          return 0;
-      }
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setEditingItem(null);
+    setFormData({
+      description: "",
+      amount: "",
+      entity: "",
+      date: new Date().toISOString().split("T")[0],
+      repeatCount: 1,
+      status: false,
+      category: "Geral"
     });
-  }, [
-    transactions,
-    activeTab,
-    selectedMonth,
-    searchTerm,
-    filterStatus,
-    sortBy,
-  ]);
-
-  const totals = useMemo(() => {
-    const val = (l) => parseFloat(l.amount);
-    return {
-      totalValue: filteredTransactions.reduce((acc, c) => acc + val(c), 0),
-      totalCompleted: filteredTransactions
-        .filter((t) => t.status)
-        .reduce((acc, c) => acc + val(c), 0),
-      totalPending: filteredTransactions
-        .filter((t) => !t.status)
-        .reduce((acc, c) => acc + val(c), 0),
-    };
-  }, [filteredTransactions]);
-
-  const handleExportCSV = (mode) => {
-    const data =
-      mode === "all"
-        ? transactions.filter((t) => t.type === activeTab)
-        : filteredTransactions;
-    const csv = [
-      "Descricao,Valor,Data,Devedor,Status",
-      ...data.map(
-        (t) =>
-          `"${t.description}",${t.amount.toFixed(2).replace(".", ",")},${
-            t.date
-          },"${t.entity || ""}",${t.status ? "Pago" : "Aberto"}`
-      ),
-    ].join("\n");
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(
-      new Blob([csv], { type: "text/csv;charset=utf-8;" })
-    );
-    link.download = `financeiro_${mode}.csv`;
-    link.click();
-    setShowExportMenu(false);
+    setRecurringEditModalOpen(false);
   };
+
+  const openEditModal = (item) => {
+    setEditingItem(item);
+    setFormData({
+      description: item.description || "",
+      amount: item.amount || "",
+      entity: item.entity || "",
+      date: item.date || new Date().toISOString().split("T")[0],
+      repeatCount: 1,
+      status: item.status || false,
+      category: item.category || "Geral"
+    });
+    setIsModalOpen(true);
+  };
+
+  const fmtMoney = (v) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
+  const fmtDate = (d) => d.split("-").reverse().join("/");
 
   const handleExportImage = async () => {
     setShowExportMenu(false);
-
-    // Pequeno atraso para garantir que o menu feche completamente antes da captura
     setTimeout(async () => {
       try {
         if (!listRef.current) return;
-
-        // Suporte tanto para o pacote NPM (local) quanto fallback de CDN
-        let h2c = window.html2canvas;
-        if (!h2c) {
-          const module = await import("html2canvas");
-          h2c = module.default || module;
-        }
-
-        if (!h2c) {
-          alert("Aguarde o carregamento da ferramenta de captura...");
-          return;
-        }
-
+        const h2c = window.html2canvas;
+        if (!h2c) return alert("Aguarde o carregamento...");
+        
         const canvas = await h2c(listRef.current, {
-          backgroundColor: isDarkMode ? "#0f172a" : "#f9fafb",
+          backgroundColor: isDarkMode ? "#0f172a" : "#f8fafc",
           scale: 2,
           useCORS: true,
-          logging: false,
-          onclone: (document) => {
-            // Remove as restrições de corte temporariamente apenas no momento de gerar a foto
-            const elements = document.querySelectorAll('.truncate, .overflow-hidden');
-            elements.forEach(el => {
-              el.classList.remove('truncate', 'overflow-hidden');
-              el.classList.add('break-words', 'whitespace-normal');
-              el.style.overflow = 'visible';
-            });
-          }
         });
-
         const link = document.createElement("a");
-        link.download = `financeiro_print.png`;
+        link.download = `meu-financeiro-${selectedMonth}.png`;
         link.href = canvas.toDataURL("image/png");
         link.click();
       } catch (err) {
-        console.error("Detalhes do erro na captura:", err);
-        alert("Erro ao gerar imagem. Verifique se há algum item não suportado na tela.");
+        console.error("Export Error:", err);
       }
     }, 300);
   };
 
-  const fmtMoney = (v) =>
-    new Intl.NumberFormat("pt-BR", {
-      style: "currency",
-      currency: "BRL",
-    }).format(v);
-  const fmtDate = (d) => d.split("-").reverse().join("/");
+  // --- RENDER ---
 
-  const theme = {
-    bg: isDarkMode ? "bg-slate-900" : "bg-gray-50",
-    text: isDarkMode ? "text-gray-100" : "text-gray-800",
-    card: isDarkMode
-      ? "bg-slate-800 border-slate-700"
-      : "bg-white border-gray-100",
-    input: isDarkMode
-      ? "bg-slate-700 border-slate-600 text-white placeholder-gray-400"
-      : "bg-white border-gray-200 text-gray-700",
-    modal: isDarkMode ? "bg-slate-800 text-white" : "bg-white text-gray-800",
-    subtext: isDarkMode ? "text-gray-400" : "text-gray-500",
-    accent: isDarkMode ? "bg-indigo-600" : "bg-indigo-100 text-indigo-700",
-  };
-
-  if (!user && !loading) {
+  if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-indigo-900 flex flex-col items-center justify-center p-6 text-white overflow-y-auto">
-        <div className="w-full max-w-md bg-white/10 backdrop-blur-lg p-8 rounded-2xl border border-white/20 shadow-2xl text-center my-auto">
-          <div className="flex justify-center mb-6">
-            <div className="bg-indigo-500 p-4 rounded-full shadow-lg shadow-indigo-500/50">
-              <Cloud size={48} className="text-white" />
+      <div className={`min-h-screen flex flex-col items-center justify-center gap-4 ${isDarkMode ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-900"}`}>
+        <div className="relative">
+          <div className="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+          <Cloud className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-indigo-600" size={24} />
+        </div>
+        <p className="font-medium animate-pulse">Carregando seu financeiro...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-[#0f172a] flex items-center justify-center p-6">
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute -top-24 -left-24 w-96 h-96 bg-indigo-600/20 rounded-full blur-3xl"></div>
+          <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-purple-600/20 rounded-full blur-3xl"></div>
+        </div>
+        
+        <div className="w-full max-w-md relative">
+          <div className="bg-white/5 backdrop-blur-2xl p-10 rounded-[2.5rem] border border-white/10 shadow-2xl text-center">
+            <div className="inline-flex p-5 rounded-3xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-lg shadow-indigo-500/30 mb-8">
+              <Wallet size={48} className="text-white" />
+            </div>
+            <h1 className="text-4xl font-black text-white mb-3 tracking-tight">Meu Financeiro</h1>
+            <p className="text-slate-400 mb-10 text-lg leading-relaxed">
+              Sua vida financeira organizada, segura e sempre à mão.
+            </p>
+            
+            <button
+              onClick={handleGoogleLogin}
+              disabled={authLoading}
+              className="w-full bg-white hover:bg-slate-50 text-slate-900 font-bold py-4 px-6 rounded-2xl shadow-xl transition-all active:scale-95 flex items-center justify-center gap-4 disabled:opacity-50"
+            >
+              {authLoading ? (
+                <Loader2 className="animate-spin text-indigo-600" />
+              ) : (
+                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-6 h-6" alt="Google" />
+              )}
+              <span className="text-lg">Entrar com Google</span>
+            </button>
+            
+            <div className="mt-10 flex items-center justify-center gap-2 text-slate-500 text-sm">
+              <ShieldCheck size={16} />
+              <span>Dados protegidos pelo Google Firebase</span>
             </div>
           </div>
-          <h1 className="text-3xl font-bold mb-2">Meu Financeiro</h1>
-          <p className="text-indigo-200 mb-8">
-            Controle pessoal seguro e na nuvem.
-          </p>
-          {loginError && (
-            <div className="bg-red-500/20 border border-red-500/50 rounded-lg p-4 mb-6 text-left text-xs p-3 rounded">
-              {loginError.message}
-            </div>
-          )}
-          <button
-            onClick={handleGoogleLogin}
-            disabled={authLoading}
-            className="w-full bg-white text-slate-900 font-bold py-4 rounded-xl shadow-lg hover:bg-indigo-50 transition transform hover:scale-105 flex items-center justify-center gap-3 disabled:opacity-50"
-          >
-            {authLoading ? (
-              <Loader2 className="animate-spin" />
-            ) : (
-              <img
-                src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
-                className="w-6 h-6"
-                alt="Google"
-              />
-            )}
-            Entrar com Google
-          </button>
         </div>
       </div>
     );
   }
 
-  if (loading)
-    return (
-      <div
-        className={`min-h-screen flex items-center justify-center ${theme.bg}`}
-      >
-        <Loader2 className="animate-spin text-indigo-600 w-12 h-12" />
-      </div>
-    );
-
   return (
-    <div
-      className={`min-h-screen ${theme.bg} ${theme.text} pb-20 font-sans transition-colors duration-300`}
-    >
-      <header
-        className={`${
-          isDarkMode ? "bg-slate-950" : "bg-indigo-900"
-        } text-white p-4 shadow-lg sticky top-0 z-20`}
-      >
-        <div className="flex flex-col md:flex-row justify-between items-center max-w-3xl mx-auto gap-4">
-          <div className="flex items-center gap-3 w-full md:w-auto">
-            <Cloud size={24} className="text-indigo-400" />
-            <div>
-              <h1 className="font-bold text-xl">Meu Financeiro</h1>
-              <div className="text-xs text-indigo-200 truncate max-w-[150px]">
-                {user.displayName}
-              </div>
+    <div className={`min-h-screen transition-colors duration-500 ${isDarkMode ? "bg-slate-950 text-slate-100" : "bg-slate-50 text-slate-900"}`}>
+      
+      {/* HEADER */}
+      <header className={`sticky top-0 z-30 backdrop-blur-lg border-b transition-colors ${
+        isDarkMode ? "bg-slate-900/80 border-slate-800" : "bg-white/80 border-slate-200"
+      }`}>
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+              <Wallet size={20} className="text-white" />
+            </div>
+            <div className="hidden sm:block">
+              <h2 className="font-bold text-lg leading-none">Meu Financeiro</h2>
+              <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider mt-1">Dashboard Pessoal</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 w-full md:w-auto justify-end">
-            <button
+
+          <div className="flex items-center gap-2">
+            <button 
               onClick={() => setIsDarkMode(!isDarkMode)}
-              className="p-2 rounded-full hover:bg-white/10 transition"
+              className={`p-2.5 rounded-xl transition-colors ${isDarkMode ? "bg-slate-800 text-amber-400 hover:bg-slate-700" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
             >
-              {isDarkMode ? (
-                <Sun size={20} className="text-yellow-400" />
-              ) : (
-                <Moon size={20} className="text-indigo-100" />
-              )}
+              {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
             </button>
-            <button
-              onClick={() => setImportModalOpen(true)}
-              className="bg-white/10 hover:bg-white/20 p-2 rounded-lg text-xs font-bold transition flex items-center gap-1"
-            >
-              <Upload size={16} />
-              Importar
-            </button>
+            
             <div className="relative">
-              <button
+              <button 
                 onClick={() => setShowExportMenu(!showExportMenu)}
-                className="bg-white/10 hover:bg-white/20 p-2 rounded-lg text-xs font-bold flex items-center gap-1 transition"
+                className={`p-2.5 rounded-xl transition-colors ${isDarkMode ? "bg-slate-800 text-slate-300 hover:bg-slate-700" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
               >
-                <Download size={16} />
-                Exportar <ChevronDown size={14} />
+                <Download size={20} />
               </button>
               {showExportMenu && (
-                <div
-                  className={`absolute right-0 mt-2 w-48 rounded-xl shadow-2xl overflow-hidden z-30 border ${theme.card}`}
-                >
-                  <button
-                    onClick={() => handleExportCSV("filtered")}
-                    className={`w-full text-left px-4 py-3 text-sm hover:opacity-80 flex items-center gap-2 border-b ${theme.text}`}
-                  >
-                    <FileText size={16} /> CSV (Atual)
+                <div className={`absolute right-0 mt-2 w-48 py-2 rounded-2xl shadow-2xl border z-50 ${isDarkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100"}`}>
+                  <button onClick={handleExportImage} className="w-full px-4 py-2.5 text-left text-sm flex items-center gap-3 hover:bg-indigo-500 hover:text-white transition-colors">
+                    <Camera size={16} /> Capturar Imagem
                   </button>
-                  <button
-                    onClick={() => handleExportCSV("all")}
-                    className={`w-full text-left px-4 py-3 text-sm hover:opacity-80 flex items-center gap-2 border-b ${theme.text}`}
-                  >
-                    <FileText size={16} /> CSV (Tudo)
-                  </button>
-                  <button
-                    onClick={handleExportImage}
-                    className={`w-full text-left px-4 py-3 text-sm hover:opacity-80 flex items-center gap-2 ${theme.text}`}
-                  >
-                    <Camera size={16} /> Imagem
+                  <button onClick={handleLogout} className="w-full px-4 py-2.5 text-left text-sm flex items-center gap-3 text-rose-500 hover:bg-rose-500 hover:text-white transition-colors">
+                    <LogOut size={16} /> Sair da Conta
                   </button>
                 </div>
               )}
             </div>
-            <button
-              onClick={() => setIsModalOpen(true)}
-              className="bg-indigo-500 hover:bg-indigo-600 p-2 rounded-full shadow-lg active:scale-95 transition"
-            >
-              <Plus size={24} color="white" />
-            </button>
-            <button
-              onClick={handleLogout}
-              className="ml-2 p-2 text-red-300 hover:bg-red-900/30 rounded-full transition"
-            >
-              <LogOut size={20} />
-            </button>
+
+            <div className="w-10 h-10 rounded-xl overflow-hidden border-2 border-indigo-500/20">
+              <img src={user.photoURL} alt={user.displayName} className="w-full h-full object-cover" />
+            </div>
           </div>
         </div>
       </header>
 
-      <main className="p-4 space-y-4 max-w-3xl mx-auto" ref={listRef}>
-        {/* FILTROS E PESQUISA */}
-        <div className="flex flex-col gap-3" data-html2canvas-ignore>
-          {/* Linha 1: Mês e Pesquisa */}
-          <div className="flex flex-col sm:flex-row gap-2">
-            <input
-              type="month"
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              className={`w-full sm:w-auto min-w-[220px] p-3 rounded-lg border shadow-sm text-center font-bold text-sm ${theme.input}`}
-            />
-            <div
-              className={`flex-1 flex items-center border rounded-lg px-3 shadow-sm ${theme.input}`}
-            >
-              <Search size={18} className="mr-2 opacity-50" />
-              <input
-                placeholder="Buscar..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full py-3 outline-none text-sm bg-transparent"
+      <main className="max-w-2xl mx-auto px-4 py-6 pb-32 space-y-6" ref={listRef}>
+        
+        {/* RESUMO (CARDS) */}
+        <section className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Card isDarkMode={isDarkMode} className="p-5 overflow-hidden relative group">
+            <div className="absolute -right-4 -top-4 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl group-hover:bg-indigo-500/20 transition-all"></div>
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                <PieChart size={20} />
+              </div>
+              <input 
+                type="month" 
+                value={selectedMonth} 
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="bg-transparent text-xs font-bold border-none focus:ring-0 p-0 text-slate-500 uppercase tracking-wider cursor-pointer"
               />
             </div>
-          </div>
+            <p className="text-slate-500 text-xs font-medium uppercase tracking-widest mb-1">Saldo do Mês</p>
+            <h3 className={`text-3xl font-black tracking-tight ${stats.balance >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+              {fmtMoney(stats.balance)}
+            </h3>
+          </Card>
 
-          {/* Linha 2: Filtros de Status e Ordenação */}
-          <div className="flex flex-col sm:flex-row gap-2 text-sm">
-            {/* Filtro de Status */}
-            <div
-              className={`flex rounded-lg overflow-hidden border ${
-                isDarkMode ? "border-slate-700" : "border-gray-200"
+          <div className="grid grid-cols-2 gap-4">
+            <Card isDarkMode={isDarkMode} className="p-4 flex flex-col justify-center">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Receitas</p>
+              </div>
+              <p className="text-lg font-bold text-emerald-500">{fmtMoney(stats.incomes)}</p>
+              <p className="text-[10px] text-slate-400 mt-1">Pendente: {fmtMoney(stats.pendingIncomes)}</p>
+            </Card>
+            <Card isDarkMode={isDarkMode} className="p-4 flex flex-col justify-center">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-2 h-2 rounded-full bg-rose-500"></div>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Despesas</p>
+              </div>
+              <p className="text-lg font-bold text-rose-500">{fmtMoney(stats.expenses)}</p>
+              <p className="text-[10px] text-slate-400 mt-1">Pendente: {fmtMoney(stats.pendingExpenses)}</p>
+            </Card>
+          </div>
+        </section>
+
+        {/* NAVEGAÇÃO TABS */}
+        <div className={`p-1.5 rounded-2xl flex gap-1 ${isDarkMode ? "bg-slate-900 border border-slate-800" : "bg-slate-200/50"}`}>
+          <button 
+            onClick={() => setActiveTab("receivable")}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm transition-all ${
+              activeTab === "receivable" 
+                ? (isDarkMode ? "bg-indigo-600 text-white shadow-lg" : "bg-white text-indigo-600 shadow-sm") 
+                : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+            }`}
+          >
+            <TrendingUp size={18} /> Receber
+          </button>
+          <button 
+            onClick={() => setActiveTab("payable")}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm transition-all ${
+              activeTab === "payable" 
+                ? (isDarkMode ? "bg-rose-600 text-white shadow-lg" : "bg-white text-rose-600 shadow-sm") 
+                : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+            }`}
+          >
+            <TrendingDown size={18} /> Pagar
+          </button>
+        </div>
+
+        {/* FILTROS E BUSCA */}
+        <section className="flex flex-col sm:flex-row gap-3" data-html2canvas-ignore>
+          <div className={`flex-1 relative group`}>
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={18} />
+            <input 
+              type="text" 
+              placeholder="Buscar lançamento..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className={`w-full pl-12 pr-4 py-3.5 rounded-2xl border outline-none transition-all ${
+                isDarkMode 
+                  ? "bg-slate-900 border-slate-800 focus:border-indigo-500 text-white" 
+                  : "bg-white border-slate-200 focus:border-indigo-500"
+              }`}
+            />
+          </div>
+          <div className="flex gap-2">
+            <select 
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className={`px-4 py-3.5 rounded-2xl border outline-none font-medium text-sm appearance-none cursor-pointer ${
+                isDarkMode ? "bg-slate-900 border-slate-800 text-white" : "bg-white border-slate-200"
               }`}
             >
-              <button
-                onClick={() => setFilterStatus("all")}
-                className={`px-3 py-2 flex-1 ${
-                  filterStatus === "all"
-                    ? isDarkMode
-                      ? "bg-indigo-600"
-                      : "bg-indigo-100 text-indigo-700"
-                    : theme.input
-                }`}
-              >
-                Todos
-              </button>
-              <button
-                onClick={() => setFilterStatus("paid")}
-                className={`px-3 py-2 flex-1 border-l border-r ${
-                  isDarkMode ? "border-slate-600" : "border-gray-200"
-                } ${
-                  filterStatus === "paid"
-                    ? isDarkMode
-                      ? "bg-emerald-600"
-                      : "bg-emerald-100 text-emerald-700"
-                    : theme.input
-                }`}
-              >
-                Pagos
-              </button>
-              <button
-                onClick={() => setFilterStatus("open")}
-                className={`px-3 py-2 flex-1 ${
-                  filterStatus === "open"
-                    ? isDarkMode
-                      ? "bg-amber-600"
-                      : "bg-amber-100 text-amber-700"
-                    : theme.input
-                }`}
-              >
-                Abertos
-              </button>
-            </div>
-
-            {/* Seletor de Ordenação */}
-            <div
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg border flex-1 sm:flex-none ${theme.input}`}
+              <option value="all">Todos</option>
+              <option value="open">Pendentes</option>
+              <option value="paid">Concluídos</option>
+            </select>
+            <select 
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className={`px-4 py-3.5 rounded-2xl border outline-none font-medium text-sm appearance-none cursor-pointer ${
+                isDarkMode ? "bg-slate-900 border-slate-800 text-white" : "bg-white border-slate-200"
+              }`}
             >
-              <SortAsc size={16} className="opacity-50" />
-              <span className="opacity-50 hidden sm:inline">Ordenar:</span>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                className="bg-transparent outline-none flex-1 font-semibold"
+              <option value="date">Data</option>
+              <option value="amount">Valor</option>
+              <option value="alpha">A-Z</option>
+            </select>
+          </div>
+        </section>
+
+        {/* LISTA DE TRANSAÇÕES */}
+        <section className="space-y-3">
+          {filteredTransactions.length === 0 ? (
+            <div className="py-20 text-center space-y-4">
+              <div className="inline-flex p-6 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400">
+                <AlignLeft size={48} />
+              </div>
+              <p className="text-slate-500 font-medium">Nenhum lançamento encontrado para este período.</p>
+              <Button onClick={() => setIsModalOpen(true)} variant="outline">Adicionar Lançamento</Button>
+            </div>
+          ) : (
+            filteredTransactions.map((item) => (
+              <Card 
+                key={item.id} 
+                isDarkMode={isDarkMode} 
+                className={`p-4 group transition-all hover:translate-x-1 ${item.status ? "opacity-60" : "opacity-100"}`}
               >
-                <option value="date" className="text-black">
-                  Data Vencimento
-                </option>
-                <option value="created" className="text-black">
-                  Data Inclusão
-                </option>
-                <option value="amount" className="text-black">
-                  Valor (Maior)
-                </option>
-                <option value="alpha" className="text-black">
-                  Nome (A-Z)
-                </option>
-                <option value="entity" className="text-black">
-                  Devedor/Entidade
-                </option>
-              </select>
-            </div>
-          </div>
-        </div>
+                <div className="flex items-center gap-4">
+                  <button 
+                    onClick={() => toggleStatus(item)}
+                    className={`flex-shrink-0 w-12 h-12 rounded-2xl flex items-center justify-center transition-all ${
+                      item.status 
+                        ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/20" 
+                        : (isDarkMode ? "bg-slate-800 text-slate-500 border border-slate-700" : "bg-slate-100 text-slate-400 border border-slate-200")
+                    }`}
+                  >
+                    {item.status ? <Check size={24} strokeWidth={3} /> : <div className="w-3 h-3 rounded-full bg-current opacity-30"></div>}
+                  </button>
 
-        {/* Resumo */}
-        <div className="grid grid-cols-3 gap-2 mt-2">
-          <div
-            className={`p-3 rounded-lg shadow-sm border text-center ${theme.card}`}
-          >
-            <span className="text-[10px] uppercase font-bold opacity-60">
-              Total
-            </span>
-            <div className={`font-bold text-sm md:text-lg ${theme.text}`}>
-              {fmtMoney(totals.totalValue)}
-            </div>
-          </div>
-          <div
-            className={`p-3 rounded-lg shadow-sm border text-center ${theme.card}`}
-          >
-            <span className="text-[10px] uppercase font-bold opacity-60">
-              Pago
-            </span>
-            <div className="font-bold text-sm md:text-lg text-emerald-500">
-              {fmtMoney(totals.totalCompleted)}
-            </div>
-          </div>
-          <div
-            className={`p-3 rounded-lg shadow-sm border text-center ${theme.card}`}
-          >
-            <span className="text-[10px] uppercase font-bold opacity-60">
-              Aberto
-            </span>
-            <div className="font-bold text-sm md:text-lg text-amber-500">
-              {fmtMoney(totals.totalPending)}
-            </div>
-          </div>
-        </div>
-
-        {/* Abas */}
-        <div
-          className={`flex p-1 rounded-lg ${
-            isDarkMode ? "bg-slate-800" : "bg-gray-200"
-          }`}
-        >
-          <button
-            onClick={() => setActiveTab("receivable")}
-            className={`flex-1 py-2 rounded-md text-sm font-bold transition ${
-              activeTab === "receivable"
-                ? isDarkMode
-                  ? "bg-slate-700 text-green-400"
-                  : "bg-white shadow"
-                : "opacity-50"
-            }`}
-          >
-            Receber
-          </button>
-          <button
-            onClick={() => setActiveTab("payable")}
-            className={`flex-1 py-2 rounded-md text-sm font-bold transition ${
-              activeTab === "payable"
-                ? isDarkMode
-                  ? "bg-slate-700 text-red-400"
-                  : "bg-white shadow"
-                : "opacity-50"
-            }`}
-          >
-            Pagar
-          </button>
-        </div>
-
-        {/* Lista */}
-        <div className="space-y-3">
-          {filteredTransactions.map((t) => (
-            <div
-              key={t.id}
-              onClick={() => openEditModal(t)}
-              className={`p-3 rounded-lg shadow-sm border flex items-center justify-between cursor-pointer hover:opacity-80 transition ${theme.card}`}
-            >
-              <div className="flex items-center gap-3 overflow-hidden flex-1">
-                <button
-                  onClick={(e) => toggleStatus(t.id, t.status, e)}
-                  className="flex-shrink-0 transition active:scale-125"
-                >
-                  {t.status ? (
-                    <CheckCircle className="text-emerald-500 w-6 h-6" />
-                  ) : (
-                    <Circle
-                      className={`w-6 h-6 ${
-                        isDarkMode ? "text-slate-600" : "text-gray-300"
-                      }`}
-                    />
-                  )}
-                </button>
-                <div className="min-w-0 flex-1 py-0.5">
-                  <div className="flex items-center gap-2">
-                    <p
-                      className={`font-semibold text-sm break-words whitespace-normal leading-tight pb-0.5 ${
-                        t.status ? "opacity-40 line-through" : ""
-                      }`}
-                    >
-                      {t.description}
-                    </p>
-                    {t.groupId && (
-                      <Repeat size={12} className="text-indigo-400 flex-shrink-0" />
-                    )}
+                  <div className="flex-1 min-w-0" onClick={() => openEditModal(item)}>
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <h4 className={`font-bold truncate ${item.status ? "line-through" : ""}`}>{item.description}</h4>
+                      {item.groupId && <Repeat size={12} className="text-indigo-500 flex-shrink-0" />}
+                    </div>
+                    <div className="flex items-center gap-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                      <span className="flex items-center gap-1"><Calendar size={12} /> {fmtDate(item.date)}</span>
+                      {item.entity && <span className="flex items-center gap-1 truncate"><Tag size={12} /> {item.entity}</span>}
+                    </div>
                   </div>
-                  <p className={`text-xs break-words whitespace-normal mt-0.5 pb-0.5 ${theme.subtext}`}>
-                    {fmtDate(t.date)} {t.entity && `• ${t.entity}`}
-                  </p>
+
+                  <div className="text-right flex-shrink-0">
+                    <p className={`text-lg font-black tracking-tight ${activeTab === "receivable" ? "text-emerald-500" : "text-rose-500"}`}>
+                      {fmtMoney(item.amount)}
+                    </p>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setItemToDelete(item);
+                        setDeleteModalOpen(true);
+                      }}
+                      className="p-1.5 text-slate-400 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div className="flex flex-col items-end flex-shrink-0 ml-3">
-                <span
-                  className={`font-bold text-sm ${
-                    t.status
-                      ? "opacity-40"
-                      : activeTab === "receivable"
-                      ? "text-green-500"
-                      : "text-red-500"
-                  }`}
-                >
-                  {fmtMoney(t.amount)}
-                </span>
-                <button
-                  onClick={(e) => handleDeleteRequest(t, e)}
-                  className="text-gray-400 hover:text-red-500 p-1 transition"
-                  data-html2canvas-ignore
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </div>
-          ))}
-          {filteredTransactions.length === 0 && (
-            <div className={`text-center py-10 opacity-50 text-sm`}>
-              <p>Nenhum lançamento encontrado com estes filtros.</p>
-            </div>
+              </Card>
+            ))
           )}
-        </div>
+        </section>
       </main>
 
-      {/* MODAL LANÇAMENTO */}
+      {/* FAB (Floating Action Button) */}
+      <button 
+        onClick={() => setIsModalOpen(true)}
+        className="fixed bottom-8 right-8 w-16 h-16 rounded-[2rem] bg-indigo-600 text-white shadow-2xl shadow-indigo-600/40 flex items-center justify-center transition-all hover:scale-110 active:scale-90 z-40"
+      >
+        <Plus size={32} strokeWidth={2.5} />
+      </button>
+
+      {/* MODAL ADICIONAR/EDITAR */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-end sm:items-center justify-center backdrop-blur-sm">
-          <div
-            className={`w-full max-w-md rounded-t-2xl sm:rounded-xl p-6 animate-in slide-in-from-bottom-10 ${theme.modal}`}
-          >
-            <h3 className="font-bold text-lg mb-6">
-              {editingItem ? "Editar Lançamento" : "Novo Lançamento"}
-            </h3>
-            <form onSubmit={onFormSubmit} className="space-y-4">
-              <div>
-                <label className="text-xs font-bold opacity-50 block mb-1">
-                  DESCRIÇÃO
-                </label>
-                <input
-                  className={`w-full p-3 rounded border outline-none ${theme.input}`}
-                  value={formData.description}
-                  onChange={(e) =>
-                    setFormData({ ...formData, description: e.target.value })
-                  }
-                  required
-                />
-              </div>
-              <div className="flex gap-4">
-                <div className="flex-1">
-                  <label className="text-xs font-bold opacity-50 block mb-1">
-                    VALOR
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    className={`w-full p-3 rounded border outline-none ${theme.input}`}
-                    value={formData.amount}
-                    onChange={(e) =>
-                      setFormData({ ...formData, amount: e.target.value })
-                    }
-                    required
-                  />
-                </div>
-                <div className="flex-1">
-                  <label className="text-xs font-bold opacity-50 block mb-1">
-                    DATA
-                  </label>
-                  <input
-                    type="date"
-                    className={`w-full p-3 rounded border outline-none ${theme.input}`}
-                    value={formData.date}
-                    onChange={(e) =>
-                      setFormData({ ...formData, date: e.target.value })
-                    }
-                    required
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="text-xs font-bold opacity-50 block mb-1">
-                  {activeTab === "receivable" ? "DEVEDOR" : "ENTIDADE"}
-                </label>
-                <input
-                  className={`w-full p-3 rounded border outline-none ${theme.input}`}
-                  value={formData.entity}
-                  onChange={(e) =>
-                    setFormData({ ...formData, entity: e.target.value })
-                  }
-                />
-              </div>
-              {!editingItem && (
-                <div
-                  className={`p-3 rounded border ${
-                    isDarkMode ? "bg-slate-700 border-slate-600" : "bg-gray-50"
-                  }`}
-                >
-                  <div className="flex justify-between items-center mb-1">
-                    <label className="text-xs font-bold opacity-50">
-                      REPETIR (Meses)
-                    </label>
-                    <span className="text-xs font-bold text-indigo-500">
-                      {formData.repeatCount}x
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min="1"
-                    max="24"
-                    className="w-full"
-                    value={formData.repeatCount}
-                    onChange={(e) =>
-                      setFormData({ ...formData, repeatCount: e.target.value })
-                    }
-                  />
-                </div>
-              )}
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={closeModal}
-                  className="flex-1 py-3 font-bold opacity-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSaving}
-                  className="flex-[2] bg-indigo-600 text-white font-bold py-3 rounded-lg transition"
-                >
-                  {isSaving ? "Salvando..." : "Confirmar"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL EDITAR RECORRENTE */}
-      {recurringEditModalOpen && (
-        <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4 backdrop-blur-sm">
-          <div
-            className={`w-full max-w-sm rounded-xl p-6 shadow-2xl ${theme.modal}`}
-          >
-            <h3 className="font-bold text-lg mb-4 text-indigo-500">
-              Editar Recorrência
-            </h3>
-            <p className="text-sm opacity-80 mb-6">
-              Deseja aplicar as alterações apenas a este mês ou a todos os
-              próximos também?
-            </p>
-            <button
-              onClick={() => executeSave("single")}
-              className={`w-full py-3 rounded-lg mb-2 font-semibold border ${
-                isDarkMode ? "border-slate-600" : "border-gray-200"
-              }`}
-            >
-              Apenas este mês
-            </button>
-            <button
-              onClick={() => executeSave("series")}
-              className="w-full py-3 rounded-lg mb-4 font-semibold bg-indigo-600 text-white"
-            >
-              Este e os futuros
-            </button>
-            <button
-              onClick={() => setRecurringEditModalOpen(false)}
-              className="w-full text-center text-sm opacity-50"
-            >
-              Voltar
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL EXCLUIR RECORRENTE */}
-      {deleteModalOpen && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className={`w-full max-w-sm rounded-xl p-6 ${theme.modal}`}>
-            <h3 className="font-bold text-lg mb-4 text-red-500">
-              Excluir Lançamento
-            </h3>
-            <p className="text-sm opacity-80 mb-6">
-              Este item é recorrente. O que deseja fazer?
-            </p>
-            <button
-              onClick={() => performDelete([itemToDelete.id])}
-              className={`w-full py-3 rounded-lg mb-2 border ${
-                isDarkMode ? "border-slate-600" : "border-gray-200"
-              }`}
-            >
-              Excluir apenas este
-            </button>
-            <button
-              onClick={handleDeleteSeries}
-              className="w-full py-3 rounded-lg mb-4 bg-red-500 text-white font-bold"
-            >
-              Excluir este e futuros
-            </button>
-            <button
-              onClick={() => setDeleteModalOpen(false)}
-              className="w-full text-center text-sm opacity-50"
-            >
-              Cancelar
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL IMPORTAR CSV */}
-      {importModalOpen && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className={`w-full max-w-sm rounded-xl p-6 ${theme.modal}`}>
-            <h3 className="font-bold text-lg mb-4">Importar CSV</h3>
-            <input
-              type="file"
-              accept=".csv"
-              onChange={(e) => setCsvFile(e.target.files[0])}
-              className="w-full text-sm mb-4"
-            />
-            <div className="flex gap-2 justify-end">
-              <button
-                onClick={() => setImportModalOpen(false)}
-                className="px-4 py-2 text-sm"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleImportCSV}
-                disabled={!csvFile || isSaving}
-                className="px-4 py-2 bg-indigo-600 text-white rounded text-sm font-bold"
-              >
-                Importar
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={closeModal}></div>
+          <Card isDarkMode={isDarkMode} className="relative w-full max-w-lg rounded-t-[2.5rem] sm:rounded-[2.5rem] p-8 animate-in slide-in-from-bottom duration-300">
+            <div className="flex items-center justify-between mb-8">
+              <h2 className="text-2xl font-black tracking-tight">
+                {editingItem ? "Editar Lançamento" : `Novo ${activeTab === "receivable" ? "Recebimento" : "Pagamento"}`}
+              </h2>
+              <button onClick={closeModal} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                <X size={24} />
               </button>
             </div>
-          </div>
+
+            <form onSubmit={onFormSubmit} className="space-y-5">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Descrição</label>
+                <input 
+                  autoFocus
+                  required
+                  type="text" 
+                  value={formData.description}
+                  onChange={(e) => setFormData({...formData, description: e.target.value})}
+                  className={`w-full px-5 py-4 rounded-2xl border outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all ${
+                    isDarkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"
+                  }`}
+                  placeholder="Ex: Aluguel, Salário, Mercado..."
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Valor (R$)</label>
+                  <input 
+                    required
+                    type="number" 
+                    step="0.01"
+                    value={formData.amount}
+                    onChange={(e) => setFormData({...formData, amount: e.target.value})}
+                    className={`w-full px-5 py-4 rounded-2xl border outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all ${
+                      isDarkMode ? "bg-slate-900 border-slate-700 text-white font-bold" : "bg-slate-50 border-slate-200 font-bold"
+                    }`}
+                    placeholder="0,00"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Data</label>
+                  <input 
+                    required
+                    type="date" 
+                    value={formData.date}
+                    onChange={(e) => setFormData({...formData, date: e.target.value})}
+                    className={`w-full px-5 py-4 rounded-2xl border outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all ${
+                      isDarkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"
+                    }`}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Devedor / Origem</label>
+                <input 
+                  type="text" 
+                  value={formData.entity}
+                  onChange={(e) => setFormData({...formData, entity: e.target.value})}
+                  className={`w-full px-5 py-4 rounded-2xl border outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all ${
+                    isDarkMode ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-50 border-slate-200"
+                  }`}
+                  placeholder="Nome da pessoa ou empresa"
+                />
+              </div>
+
+              {!editingItem && (
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Repetir por quantos meses?</label>
+                  <div className="flex items-center gap-4">
+                    <input 
+                      type="range" min="1" max="24"
+                      value={formData.repeatCount}
+                      onChange={(e) => setFormData({...formData, repeatCount: e.target.value})}
+                      className="flex-1 h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                    />
+                    <span className="w-12 text-center font-black text-indigo-600">{formData.repeatCount}x</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-4 flex gap-3">
+                <Button variant="ghost" className="flex-1 py-4" onClick={closeModal}>Cancelar</Button>
+                <Button 
+                  disabled={isSaving}
+                  className="flex-[2] py-4 text-lg shadow-xl"
+                >
+                  {isSaving ? <Loader2 className="animate-spin" /> : (editingItem ? "Salvar Alterações" : "Confirmar Lançamento")}
+                </Button>
+              </div>
+            </form>
+          </Card>
         </div>
       )}
+
+      {/* MODAL DE CONFIRMAÇÃO DE DELEÇÃO */}
+      {deleteModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md" onClick={() => setDeleteModalOpen(false)}></div>
+          <Card isDarkMode={isDarkMode} className="relative w-full max-w-sm p-8 text-center animate-in zoom-in duration-200">
+            <div className="w-20 h-20 bg-rose-500/10 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-6">
+              <AlertTriangle size={40} />
+            </div>
+            <h3 className="text-xl font-black mb-2">Excluir Lançamento?</h3>
+            <p className="text-slate-500 text-sm mb-8 leading-relaxed">
+              Esta ação não pode ser desfeita. {itemToDelete?.groupId ? "Este item faz parte de uma série recorrente." : ""}
+            </p>
+            
+            <div className="flex flex-col gap-2">
+              <Button variant="danger" className="py-3.5" onClick={() => handleDelete("single")}>
+                Excluir Apenas Este
+              </Button>
+              {itemToDelete?.groupId && (
+                <Button variant="outline" className="py-3.5 border-rose-500/50 text-rose-500 hover:bg-rose-500 hover:text-white" onClick={() => handleDelete("series")}>
+                  Excluir Toda a Série Futura
+                </Button>
+              )}
+              <Button variant="ghost" className="py-3.5" onClick={() => setDeleteModalOpen(false)}>
+                Cancelar
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* MODAL DE EDIÇÃO RECORRENTE */}
+      {recurringEditModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md" onClick={() => setRecurringEditModalOpen(false)}></div>
+          <Card isDarkMode={isDarkMode} className="relative w-full max-w-sm p-8 text-center animate-in zoom-in duration-200">
+            <div className="w-20 h-20 bg-indigo-500/10 text-indigo-500 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Repeat size={40} />
+            </div>
+            <h3 className="text-xl font-black mb-2">Editar Recorrência</h3>
+            <p className="text-slate-500 text-sm mb-8 leading-relaxed">
+              Deseja aplicar estas alterações apenas a este lançamento ou a todos os próximos da série?
+            </p>
+            
+            <div className="flex flex-col gap-2">
+              <Button className="py-3.5" onClick={() => executeSave("series")}>
+                Atualizar Toda a Série
+              </Button>
+              <Button variant="outline" className="py-3.5" onClick={() => executeSave("single")}>
+                Atualizar Apenas Este
+              </Button>
+              <Button variant="ghost" className="py-3.5" onClick={() => setRecurringEditModalOpen(false)}>
+                Cancelar
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* FOOTER MOBILE NAVIGATION (OPTIONAL DECORATION) */}
+      <div className={`fixed bottom-0 left-0 right-0 h-20 border-t sm:hidden z-30 transition-colors ${
+        isDarkMode ? "bg-slate-900/90 border-slate-800" : "bg-white/90 border-slate-200"
+      }`}>
+        <div className="flex h-full items-center justify-around px-6">
+          <button onClick={() => window.scrollTo({top: 0, behavior: 'smooth'})} className="flex flex-col items-center gap-1 text-indigo-500">
+            <Wallet size={24} />
+            <span className="text-[10px] font-bold uppercase tracking-widest">Início</span>
+          </button>
+          <div className="w-12"></div> {/* Spacer for FAB */}
+          <button onClick={() => setIsDarkMode(!isDarkMode)} className="flex flex-col items-center gap-1 text-slate-400">
+            {isDarkMode ? <Sun size={24} /> : <Moon size={24} />}
+            <span className="text-[10px] font-bold uppercase tracking-widest">Tema</span>
+          </button>
+        </div>
+      </div>
+
     </div>
   );
 }
