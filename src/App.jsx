@@ -1,10 +1,10 @@
+```react
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Plus, Trash2, CheckCircle, Circle, Search, Cloud, Loader2,
-  Sun, Moon, Repeat, X, Check, Zap, Menu,
-  Edit3, Home, Settings, Star, Eye, EyeOff, Shield,
-  TrendingUp, TrendingDown, Wallet, AlertCircle, Bell, ChevronLeft, ChevronRight,
-  MessageCircle
+  Sun, Moon, Repeat, X, Check, Zap, LogOut,
+  Edit3, Star, Eye, EyeOff, Shield, TrendingUp, TrendingDown, 
+  Wallet, AlertCircle, Bell, ChevronLeft, ChevronRight, MessageCircle
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import {
@@ -17,6 +17,7 @@ import {
   onSnapshot, writeBatch
 } from "firebase/firestore";
 
+// Configurações do Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyDqY-cooGvIPMykBfzdkdKO5EHd9vweTz4",
   authDomain: "controle-financeiro-gavs.firebaseapp.com",
@@ -31,12 +32,14 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
+// Lista de Ícones (Emojis)
 const ICONS = [
   "💰", "💸", "💳", "🏦", "🏠", "🚗", "⚡", "💧", "📱", "💻", 
   "🛒", "🍔", "☕", "💊", "🏥", "📚", "🎓", "🎮", "🎬", "✈️", 
   "🏖️", "🐾", "🐶", "🎁", "🔧", "🛠️", "👗", "👟", "👶", "📦", "📄"
 ];
 
+// Utilitários de Formatação
 const fmtMoney = (v) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v || 0);
 const fmtDate = (d) => d ? d.split("-").reverse().join("/") : "-";
 const fmtMonthYear = (str) => {
@@ -53,6 +56,7 @@ const getDaysUntil = (dateStr) => {
   return Math.round((d - today) / 86400000);
 };
 
+// Componente Visual de Status
 const StatusBadge = ({ days, status }) => {
   if (status) return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-500">Pago</span>;
   if (days === null) return null;
@@ -60,20 +64,6 @@ const StatusBadge = ({ days, status }) => {
   if (days === 0) return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-500">Hoje</span>;
   if (days <= 3) return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-500">{days}d</span>;
   return null;
-};
-
-const ProgressRing = ({ pct, size = 56, stroke = 5, color = "#10b981" }) => {
-  const r = (size - stroke) / 2;
-  const circ = 2 * Math.PI * r;
-  const offset = circ - (pct / 100) * circ;
-  return (
-    <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth={stroke} />
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke}
-        strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
-        style={{ transition: "stroke-dashoffset 0.8s ease" }} />
-    </svg>
-  );
 };
 
 export default function FinanceApp() {
@@ -92,6 +82,8 @@ export default function FinanceApp() {
   const [filterStatus, setFilterStatus] = useState("all");
   
   const [recurringEditModalOpen, setRecurringEditModalOpen] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [toast, setToast] = useState(null);
   const [expandId, setExpandId] = useState(null);
@@ -112,6 +104,7 @@ export default function FinanceApp() {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
+  // Injeção de Estilos CSS e Gerenciamento de Tema
   useEffect(() => {
     document.title = "Meu Financeiro";
     localStorage.setItem("financeAppTheme", isDarkMode ? "dark" : "light");
@@ -135,18 +128,18 @@ export default function FinanceApp() {
       @keyframes toastIn { from { opacity: 0; transform: translateX(100%); } to { opacity: 1; transform: translateX(0); } }
       .glow-green { box-shadow: 0 0 20px rgba(16,185,129,0.15); }
       .glow-red { box-shadow: 0 0 20px rgba(239,68,68,0.15); }
-      .glow-purple { box-shadow: 0 0 20px rgba(99,102,241,0.2); }
-      .priority-glow { box-shadow: inset 3px 0 0 #f59e0b; }
       .icon-btn { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 10px; cursor: pointer; transition: all 0.2s; }
       .icon-btn:hover { background: rgba(120,120,120,0.1); }
-      /* Esconde a scrollbar na lista horizontal de ícones */
       .no-scrollbar::-webkit-scrollbar { display: none; }
       .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      .spin-slow { animation: spin 2s linear infinite; }
+      @keyframes spin { 100% { transform: rotate(360deg); } }
     `;
     document.head.appendChild(style);
     return () => document.head.removeChild(style);
   }, [isDarkMode]);
 
+  // Autenticação Firebase
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -154,12 +147,7 @@ export default function FinanceApp() {
           await signInWithCustomToken(auth, __initial_auth_token);
         }
       } catch (e) {
-        // Ignora silenciosamente o erro de mismatch quando um Firebase customizado for usado
-        if (e.code === 'auth/custom-token-mismatch') {
-          console.log("Projeto Firebase customizado detectado. Aguardando login manual do usuário.");
-        } else {
-          console.error("Auth init error:", e);
-        }
+        console.error("Auth init error:", e);
       }
     };
     initAuth();
@@ -168,6 +156,7 @@ export default function FinanceApp() {
     return () => unsubscribe();
   }, []);
 
+  // Banco de Dados Firestore (Sincronização em tempo real)
   useEffect(() => {
     if (!user) return;
     const colRef = collection(db, "artifacts", appId, "users", user.uid, "transactions");
@@ -175,14 +164,11 @@ export default function FinanceApp() {
       setTransactions(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
     }, (err) => {
       console.error("Firestore:", err);
-      if (err.code === "permission-denied") {
-        onSnapshot(collection(db, "users", user.uid, "transactions"), (snap) => {
-          setTransactions(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-        });
-      }
     });
     return () => unsubscribe();
   }, [user]);
+
+  // --- Funções de Ação ---
 
   const handleGoogleLogin = async () => {
     setLoginError(null); setAuthLoading(true);
@@ -191,7 +177,7 @@ export default function FinanceApp() {
       await setPersistence(auth, browserLocalPersistence);
       await signInWithPopup(auth, provider);
     } catch (error) {
-      setLoginError(error.message);
+      setLoginError("Login bloqueado. Tente abrir em nova aba.");
     } finally { setAuthLoading(false); }
   };
 
@@ -201,16 +187,6 @@ export default function FinanceApp() {
       onConfirm: async () => { await signOut(auth); setTransactions([]); setConfirmDialog(null); }
     });
   };
-
-  const T = isDarkMode ? {
-    bg: "#0b1120", surface: "#111827", card: "#161f30", border: "rgba(255,255,255,0.07)",
-    text: "#f1f5f9", muted: "#64748b", soft: "#1e2a3d", accent: "#6366f1", input: "#1e2a3d"
-  } : {
-    bg: "#f0f4f8", surface: "#ffffff", card: "#ffffff", border: "rgba(0,0,0,0.07)",
-    text: "#0f172a", muted: "#64748b", soft: "#f1f5f9", accent: "#6366f1", input: "#f8fafc"
-  };
-
-  // --- CRUD & DB LOGIC ---
 
   const openAddModal = () => {
     setEditingItem(null);
@@ -226,7 +202,7 @@ export default function FinanceApp() {
     setFormData({
       ...item,
       amount: item.amount || "",
-      recurrenceType: "none", repeatCount: 2, // Reset recurrence on edit
+      recurrenceType: "none", repeatCount: 2, // Reseta nas edições
     });
     setIsModalOpen(true);
   };
@@ -272,7 +248,8 @@ export default function FinanceApp() {
         let count = 1;
         let isInfinite = false;
 
-        if (formData.recurrenceType === "fixed") { count = 120; isInfinite = true; } // 10 years
+        // Se for Fixa, cria 120 meses (10 anos), se for parcelado pega a quantidade
+        if (formData.recurrenceType === "fixed") { count = 120; isInfinite = true; } 
         else if (formData.recurrenceType === "installments") { count = Math.max(2, parseInt(formData.repeatCount)); }
         
         const groupId = count > 1 ? crypto.randomUUID() : null;
@@ -341,7 +318,7 @@ export default function FinanceApp() {
     e.stopPropagation();
     if (user) {
       await updateDoc(doc(db, `artifacts/${appId}/users/${user.uid}/transactions`, id), { status: !current });
-      showToast(current ? "Marcado como aberto" : "Marcado como pago! ✓");
+      showToast(current ? "Marcado como aberto" : "Marcado como liquidado! ✓");
     }
   };
 
@@ -351,7 +328,7 @@ export default function FinanceApp() {
     window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
-  // --- DERIVADOS ---
+  // --- Processamento de Dados (Filtros e Cálculos) ---
 
   const monthTransactions = useMemo(() => {
     return transactions.filter(t => t.date?.startsWith(selectedMonth));
@@ -387,8 +364,16 @@ export default function FinanceApp() {
     return result.sort((a, b) => new Date(a.date) - new Date(b.date));
   }, [monthTransactions, activeTab, searchTerm, filterStatus]);
 
+  // Tema
+  const T = isDarkMode ? {
+    bg: "#0b1120", surface: "#111827", card: "#161f30", border: "rgba(255,255,255,0.07)",
+    text: "#f1f5f9", muted: "#64748b", soft: "#1e2a3d", input: "#1e2a3d"
+  } : {
+    bg: "#f0f4f8", surface: "#ffffff", card: "#ffffff", border: "rgba(0,0,0,0.07)",
+    text: "#0f172a", muted: "#64748b", soft: "#f1f5f9", input: "#f8fafc"
+  };
 
-  // ─── LOGIN SCREEN ───
+  // ─── TELA DE LOGIN ───
   if (!user && !loading) {
     return (
       <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #0b1120 0%, #1a0533 50%, #0b1120 100%)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px" }}>
@@ -416,9 +401,10 @@ export default function FinanceApp() {
     </div>
   );
 
-  // ─── MAIN APP RENDER ───
+  // ─── APLICATIVO PRINCIPAL ───
   return (
     <>
+      {/* Toast Notificações */}
       {toast && (
         <div className="toast-enter" style={{ position: "fixed", top: 20, right: 16, zIndex: 9999, background: toast.type === "error" ? "#ef4444" : "#10b981", color: "white", padding: "12px 20px", borderRadius: 12, fontSize: 14, fontWeight: 600, boxShadow: "0 8px 32px rgba(0,0,0,0.3)", display: "flex", alignItems: "center", gap: 8, maxWidth: 280 }}>
           {toast.type === "error" ? <AlertCircle size={16} /> : <Check size={16} />}
@@ -426,6 +412,7 @@ export default function FinanceApp() {
         </div>
       )}
 
+      {/* Modal de Confirmação Customizado (Substitui confirm do Navegador) */}
       {confirmDialog && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, backdropFilter: "blur(8px)" }}>
           <div className="slide-up" style={{ width: "100%", maxWidth: 360, background: T.card, borderRadius: 24, padding: "28px 24px", border: `1px solid ${T.border}` }}>
@@ -455,38 +442,38 @@ export default function FinanceApp() {
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-            <button onClick={() => setShowBalanceValues(!showBalanceValues)} className="icon-btn" style={{ color: T.muted }}>
+            <button onClick={() => setShowBalanceValues(!showBalanceValues)} className="icon-btn" style={{ background: "none", border: "none", color: T.muted }}>
               {showBalanceValues ? <Eye size={18} /> : <EyeOff size={18} />}
             </button>
-            <button onClick={() => setIsDarkMode(!isDarkMode)} className="icon-btn" style={{ color: T.muted }}>
+            <button onClick={() => setIsDarkMode(!isDarkMode)} className="icon-btn" style={{ background: "none", border: "none", color: T.muted }}>
               {isDarkMode ? <Sun size={18} color="#fbbf24" /> : <Moon size={18} />}
             </button>
-            <button onClick={handleLogout} className="icon-btn" style={{ color: "#ef4444" }}>
+            <button onClick={handleLogout} className="icon-btn" style={{ background: "none", border: "none", color: "#ef4444" }}>
               <LogOut size={18} />
             </button>
           </div>
         </div>
       </div>
 
-      <div style={{ maxWidth: 640, margin: "0 auto", padding: "16px" }}>
+      <div style={{ maxWidth: 640, margin: "0 auto", padding: "16px", paddingBottom: 100 }}>
         
         {/* NAVEGADOR DE MÊS */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: T.surface, borderRadius: 16, padding: "10px 16px", border: `1px solid ${T.border}`, marginBottom: 16 }}>
-          <button onClick={() => { const [y, m] = selectedMonth.split("-"); setSelectedMonth(new Date(y, m - 2, 1).toISOString().slice(0, 7)); }} className="icon-btn" style={{ color: T.muted }}><ChevronLeft size={20} /></button>
+          <button onClick={() => { const [y, m] = selectedMonth.split("-"); setSelectedMonth(new Date(y, m - 2, 1).toISOString().slice(0, 7)); }} className="icon-btn" style={{ background: "none", border: "none", color: T.muted }}><ChevronLeft size={20} /></button>
           <div style={{ textAlign: "center" }}>
             <div style={{ fontSize: 16, fontWeight: 800, color: T.text, textTransform: "capitalize" }}>{fmtMonthYear(selectedMonth)}</div>
           </div>
-          <button onClick={() => { const [y, m] = selectedMonth.split("-"); setSelectedMonth(new Date(y, m, 1).toISOString().slice(0, 7)); }} className="icon-btn" style={{ color: T.muted }}><ChevronRight size={20} /></button>
+          <button onClick={() => { const [y, m] = selectedMonth.split("-"); setSelectedMonth(new Date(y, m, 1).toISOString().slice(0, 7)); }} className="icon-btn" style={{ background: "none", border: "none", color: T.muted }}><ChevronRight size={20} /></button>
         </div>
 
-        {/* DASHBOARD COMPACTO */}
+        {/* DASHBOARD COMPACTO (VISÃO ÚNICA) */}
         <div className="fade-in" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
           {/* Receitas */}
           <div className="glow-green" style={{ background: "linear-gradient(135deg, rgba(16,185,129,0.1), rgba(16,185,129,0.05))", border: `1px solid rgba(16,185,129,0.2)`, borderRadius: 18, padding: "16px" }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#10b981", textTransform: "uppercase", marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}><TrendingUp size={12} /> A Receber</div>
             <div className="mono" style={{ fontSize: showBalanceValues ? 18 : 14, fontWeight: 800, color: T.text }}>{showBalanceValues ? fmtMoney(dashboardData.totalRec) : "R$ ••••"}</div>
             <div style={{ height: 4, background: "rgba(16,185,129,0.2)", borderRadius: 4, marginTop: 8, overflow: "hidden" }}>
-              <div style={{ width: `${dashboardData.pctRec}%`, height: "100%", background: "#10b981", borderRadius: 4 }} />
+              <div style={{ width: `${dashboardData.pctRec}%`, height: "100%", background: "#10b981", borderRadius: 4, transition: "width 0.5s ease" }} />
             </div>
           </div>
           
@@ -495,11 +482,11 @@ export default function FinanceApp() {
             <div style={{ fontSize: 11, fontWeight: 600, color: "#ef4444", textTransform: "uppercase", marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}><TrendingDown size={12} /> A Pagar</div>
             <div className="mono" style={{ fontSize: showBalanceValues ? 18 : 14, fontWeight: 800, color: T.text }}>{showBalanceValues ? fmtMoney(dashboardData.totalPay) : "R$ ••••"}</div>
             <div style={{ height: 4, background: "rgba(239,68,68,0.2)", borderRadius: 4, marginTop: 8, overflow: "hidden" }}>
-              <div style={{ width: `${dashboardData.pctPay}%`, height: "100%", background: "#ef4444", borderRadius: 4 }} />
+              <div style={{ width: `${dashboardData.pctPay}%`, height: "100%", background: "#ef4444", borderRadius: 4, transition: "width 0.5s ease" }} />
             </div>
           </div>
 
-          {/* Saldo Full Width */}
+          {/* Saldo Final */}
           <div style={{ gridColumn: "1 / -1", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 18, padding: "16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
               <div style={{ fontSize: 12, fontWeight: 600, color: T.muted, textTransform: "uppercase", marginBottom: 2 }}>Saldo Projetado</div>
@@ -515,7 +502,7 @@ export default function FinanceApp() {
           </div>
         </div>
 
-        {/* TABS DE LISTA */}
+        {/* ABAS DA LISTA DE LANÇAMENTOS */}
         <div style={{ display: "flex", background: T.surface, borderRadius: 12, padding: 4, marginBottom: 12, border: `1px solid ${T.border}` }}>
           {[{ id: "receivable", l: "Receitas", c: "#10b981" }, { id: "payable", l: "Despesas", c: "#ef4444" }].map((tab) => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, transition: "all 0.2s", background: activeTab === tab.id ? (tab.id === "receivable" ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.15)") : "transparent", color: activeTab === tab.id ? tab.c : T.muted }}>
@@ -529,7 +516,7 @@ export default function FinanceApp() {
           <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "0 12px" }}>
             <Search size={16} color={T.muted} />
             <input placeholder="Buscar..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ flex: 1, padding: "12px 0", background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 14 }} />
-            {searchTerm && <button onClick={() => setSearchTerm("")} style={{ background: "none", border: "none", color: T.muted }}><X size={14} /></button>}
+            {searchTerm && <button onClick={() => setSearchTerm("")} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer" }}><X size={14} /></button>}
           </div>
           <div style={{ display: "flex", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
             {[{ v: "all", l: "T" }, { v: "paid", l: "P" }, { v: "open", l: "A" }].map((opt) => (
@@ -549,17 +536,17 @@ export default function FinanceApp() {
               <div key={t.id} className="fade-in" style={{ background: T.card, border: `1px solid ${t.priority ? "#f59e0b" : isOverdue ? "rgba(239,68,68,0.4)" : T.border}`, borderRadius: 16, overflow: "hidden", boxShadow: t.priority ? "inset 3px 0 0 #f59e0b" : "none" }}>
                 <div onClick={() => setExpandId(isExpanded ? null : t.id)} style={{ padding: "14px", cursor: "pointer", display: "flex", gap: 12, alignItems: "flex-start" }}>
                   
-                  {/* Status Toggle */}
+                  {/* Toggle Circular */}
                   <button onClick={(e) => toggleStatus(t.id, t.status, e)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0, marginTop: 2 }}>
                     {t.status ? <CheckCircle size={24} color="#10b981" /> : <Circle size={24} color={isOverdue ? "#ef4444" : T.muted} />}
                   </button>
 
-                  {/* Icon */}
+                  {/* Ícone Emojis */}
                   <div style={{ width: 40, height: 40, borderRadius: 12, background: T.soft, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>
                     {t.icon || "💸"}
                   </div>
 
-                  {/* Info */}
+                  {/* Informações Centrais */}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                       <span style={{ fontSize: 14, fontWeight: 600, color: t.status ? T.muted : T.text, textDecoration: t.status ? "line-through" : "none", lineHeight: 1.3 }}>
@@ -572,18 +559,19 @@ export default function FinanceApp() {
                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
                       <span style={{ fontSize: 12, color: T.muted }}>{fmtDate(t.date)}</span>
                       {t.entity && <><span style={{ color: T.border }}>•</span><span style={{ fontSize: 12, color: T.muted }}>{t.entity}</span></>}
-                      {t.groupId && <span style={{ background: "rgba(99,102,241,0.1)", color: "#6366f1", fontSize: 9, padding: "2px 4px", borderRadius: 4, fontWeight: 700 }}>↻ {t.isInfinite ? "Fixo" : "Rec"}</span>}
+                      {t.groupId && <span style={{ background: "rgba(99,102,241,0.1)", color: "#6366f1", fontSize: 9, padding: "2px 4px", borderRadius: 4, fontWeight: 700 }}>↻ {t.isInfinite ? "Fixa" : "Rec"}</span>}
                       <StatusBadge days={days} status={t.status} />
                     </div>
                   </div>
                 </div>
 
-                {/* Expanded Actions */}
+                {/* Ações ao Expandir o Item */}
                 {isExpanded && (
                   <div className="slide-up" style={{ padding: "0 14px 14px 78px", display: "flex", gap: 8 }}>
                     <button onClick={() => openEditModal(t)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px", borderRadius: 10, border: "none", background: T.soft, color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                       <Edit3 size={14} /> Editar
                     </button>
+                    {/* Botão de WhatsApp para Lançamentos a Receber Pendentes */}
                     {t.type === "receivable" && !t.status && (
                       <button onClick={(e) => handleWhatsApp(t, e)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px", borderRadius: 10, border: "none", background: "rgba(34,197,94,0.15)", color: "#10b981", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                         <MessageCircle size={14} /> Cobrar
@@ -607,7 +595,7 @@ export default function FinanceApp() {
         </div>
       </div>
 
-      {/* FAB - BOTÃO ADICIONAR */}
+      {/* FAB - BOTÃO ADICIONAR FLUTUANTE */}
       <button onClick={openAddModal} style={{ position: "fixed", bottom: 24, right: 24, background: "linear-gradient(135deg, #6366f1, #8b5cf6)", border: "none", borderRadius: 20, width: 60, height: 60, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 8px 32px rgba(99,102,241,0.5)", zIndex: 30 }}>
         <Plus size={28} color="white" />
       </button>
@@ -623,7 +611,7 @@ export default function FinanceApp() {
               <button onClick={closeModal} style={{ background: T.soft, border: "none", borderRadius: 10, padding: "6px", cursor: "pointer", color: T.muted }}><X size={18} /></button>
             </div>
 
-            {/* Abas Receita/Despesa (só na criação) */}
+            {/* Abas Receita/Despesa (só aparece na criação) */}
             {!editingItem && (
               <div style={{ display: "flex", background: T.soft, borderRadius: 12, padding: 4, marginBottom: 20 }}>
                 {[{ id: "receivable", l: "📥 Receita", c: "#10b981" }, { id: "payable", l: "📤 Despesa", c: "#ef4444" }].map((tab) => (
@@ -636,12 +624,12 @@ export default function FinanceApp() {
 
             <form onSubmit={onFormSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               
-              {/* Seletor de Ícone Horizontal */}
+              {/* Seletor de Ícone Horizontal Customizado */}
               <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 8 }}>Ícone</label>
+                <label style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 8 }}>Ícone Visual</label>
                 <div className="no-scrollbar" style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
                   {ICONS.map(ic => (
-                    <button type="button" key={ic} onClick={() => setFormData({ ...formData, icon: ic })} style={{ width: 40, height: 40, flexShrink: 0, borderRadius: 12, border: `2px solid ${formData.icon === ic ? "#6366f1" : T.border}`, background: formData.icon === ic ? "rgba(99,102,241,0.15)" : T.soft, fontSize: 20, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+                    <button type="button" key={ic} onClick={() => setFormData({ ...formData, icon: ic })} style={{ width: 44, height: 44, flexShrink: 0, borderRadius: 12, border: `2px solid ${formData.icon === ic ? "#6366f1" : T.border}`, background: formData.icon === ic ? "rgba(99,102,241,0.15)" : T.soft, fontSize: 20, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
                       {ic}
                     </button>
                   ))}
@@ -669,7 +657,7 @@ export default function FinanceApp() {
                 <input value={formData.entity} onChange={(e) => setFormData({ ...formData, entity: e.target.value })} placeholder="Nome da pessoa ou empresa..." style={{ width: "100%", marginTop: 6, padding: "14px", background: T.input, border: `1px solid ${T.border}`, borderRadius: 12, color: T.text, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
               </div>
 
-              {/* Controles: Prioridade e Status */}
+              {/* Controles de Status */}
               <div style={{ display: "flex", gap: 10 }}>
                 <button type="button" onClick={() => setFormData({ ...formData, priority: !formData.priority })} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px", borderRadius: 12, border: `1px solid ${formData.priority ? "#f59e0b" : T.border}`, background: formData.priority ? "rgba(245,158,11,0.15)" : T.soft, color: formData.priority ? "#f59e0b" : T.text, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
                   <Star size={16} fill={formData.priority ? "#f59e0b" : "none"} /> Prioridade
@@ -681,12 +669,12 @@ export default function FinanceApp() {
                 )}
               </div>
 
-              {/* Configuração de Recorrência (Apenas na Criação) */}
+              {/* Configuração de Recorrência Melhorada */}
               {!editingItem && (
                 <div style={{ background: T.soft, borderRadius: 14, padding: "16px", border: `1px solid ${T.border}` }}>
-                  <label style={{ fontSize: 12, fontWeight: 700, color: T.text, display: "block", marginBottom: 12 }}>Repetir lançamento?</label>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: T.text, display: "block", marginBottom: 12 }}>Como funciona essa conta?</label>
                   <div style={{ display: "flex", gap: 8, marginBottom: formData.recurrenceType === "installments" ? 16 : 0 }}>
-                    {[{ id: "none", l: "Não" }, { id: "fixed", l: "Despesa Fixa" }, { id: "installments", l: "Parcelado" }].map(rt => (
+                    {[{ id: "none", l: "Única Vez" }, { id: "fixed", l: "Conta Fixa" }, { id: "installments", l: "Parcelado" }].map(rt => (
                       <button type="button" key={rt.id} onClick={() => setFormData({ ...formData, recurrenceType: rt.id })} style={{ flex: 1, padding: "8px", borderRadius: 8, border: `1px solid ${formData.recurrenceType === rt.id ? "#6366f1" : T.border}`, background: formData.recurrenceType === rt.id ? "rgba(99,102,241,0.15)" : "transparent", color: formData.recurrenceType === rt.id ? "#6366f1" : T.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                         {rt.l}
                       </button>
@@ -695,7 +683,7 @@ export default function FinanceApp() {
 
                   {formData.recurrenceType === "fixed" && (
                     <div className="fade-in" style={{ fontSize: 11, color: T.muted, marginTop: 12, lineHeight: 1.4 }}>
-                      <AlertCircle size={12} style={{ display: "inline", marginBottom: -2 }} /> Será gerado como uma conta fixa mensal continua.
+                      <AlertCircle size={12} style={{ display: "inline", marginBottom: -2 }} /> Esta opção gera a cobrança automaticamente todos os meses de forma ininterrupta.
                     </div>
                   )}
 
@@ -711,7 +699,7 @@ export default function FinanceApp() {
                 </div>
               )}
 
-              {/* Botões de Ação Modal */}
+              {/* Botões do Formulário */}
               <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
                 <button type="button" onClick={closeModal} style={{ flex: 1, padding: "16px", borderRadius: 14, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
                   Cancelar
@@ -725,7 +713,7 @@ export default function FinanceApp() {
         </div>
       )}
 
-      {/* MODAIS DE RECORRÊNCIA E EXCLUSÃO (Preservados do padrão) */}
+      {/* MODAL: EDIÇÃO RECORRENTE (Exatamente o mesmo comportamento mantido) */}
       {recurringEditModalOpen && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, backdropFilter: "blur(8px)" }}>
           <div className="slide-up" style={{ width: "100%", maxWidth: 380, background: T.card, borderRadius: 24, padding: "28px 24px", border: `1px solid ${T.border}` }}>
@@ -743,6 +731,7 @@ export default function FinanceApp() {
         </div>
       )}
 
+      {/* MODAL: EXCLUSÃO RECORRENTE (Exatamente o mesmo comportamento mantido) */}
       {deleteModalOpen && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, backdropFilter: "blur(8px)" }}>
           <div className="slide-up" style={{ width: "100%", maxWidth: 380, background: T.card, borderRadius: 24, padding: "28px 24px", border: `1px solid rgba(239,68,68,0.2)` }}>
