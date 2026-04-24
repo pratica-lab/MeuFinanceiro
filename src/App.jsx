@@ -3,7 +3,7 @@ import {
   Plus, Trash2, CheckCircle, Circle, Search, Loader2,
   Sun, Moon, Repeat, X, Check, LogOut,
   Edit3, Star, Eye, EyeOff, TrendingUp, TrendingDown, 
-  Wallet, AlertCircle, Bell, ChevronLeft, ChevronRight, MessageCircle
+  Wallet, AlertCircle, ChevronLeft, ChevronRight, MessageCircle
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import {
@@ -104,12 +104,23 @@ export default function FinanceApp() {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
-  // Injeção de Estilos CSS segura (Sem template literals e sem @import)
+  // Injeção de Estilos CSS e FAVICON seguro
   useEffect(() => {
     document.title = "Meu Financeiro";
     localStorage.setItem("financeAppTheme", isDarkMode ? "dark" : "light");
     
-    // Injeta a fonte via Link
+    // FAVICON - Ícone SVG idêntico ao do Header gerado em tempo de execução
+    let favicon = document.querySelector("link[rel~='icon']");
+    if (!favicon) {
+      favicon = document.createElement("link");
+      favicon.rel = "icon";
+      favicon.type = "image/svg+xml";
+      document.head.appendChild(favicon);
+    }
+    const svgIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#8b5cf6"/></linearGradient></defs><rect width="100" height="100" rx="25" fill="url(#grad)"/><g transform="translate(20, 20) scale(2.5)" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></g></svg>';
+    favicon.href = "data:image/svg+xml," + encodeURIComponent(svgIcon);
+
+    // FONTES E ESTILOS
     if (!document.getElementById("finance-fonts")) {
       const link = document.createElement("link");
       link.id = "finance-fonts";
@@ -118,7 +129,6 @@ export default function FinanceApp() {
       document.head.appendChild(link);
     }
 
-    // Injeta os estilos dinâmicos
     const styleId = "finance-dynamic-style";
     let style = document.getElementById(styleId);
     if (!style) {
@@ -187,7 +197,12 @@ export default function FinanceApp() {
     return () => unsubscribe();
   }, [user]);
 
-  // --- Funções de Ação ---
+  // Processamento de Lançamentos do Mês
+  const monthTransactions = useMemo(() => {
+    return transactions.filter(t => t.date?.startsWith(selectedMonth));
+  }, [transactions, selectedMonth]);
+
+  // --- Funções de Ação CRUD ---
 
   const handleGoogleLogin = async () => {
     setLoginError(null); setAuthLoading(true);
@@ -343,17 +358,46 @@ export default function FinanceApp() {
     }
   };
 
+  // --- Função Refatorada para Cobrança Inteligente Agrupada no WhatsApp ---
   const handleWhatsApp = (t, e) => {
     e.stopPropagation();
-    const msg = "Olá" + (t.entity ? " " + t.entity : "") + "! Tudo bem?\nPassando para lembrar do valor de *" + fmtMoney(t.amount) + "* referente a *" + t.description + "* com vencimento em *" + fmtDate(t.date) + "*.\nQualquer dúvida, estou à disposição!";
+    
+    let msg = "";
+
+    // Se o item tem Devedor (Entity), busca todos os itens pendentes dele neste mês
+    if (t.entity && t.entity.trim() !== "") {
+      const devedorTarget = t.entity.trim().toLowerCase();
+      const pendenciasDevedor = monthTransactions.filter(
+        item => item.type === "receivable" && 
+                !item.status && 
+                item.entity && 
+                item.entity.trim().toLowerCase() === devedorTarget
+      );
+
+      if (pendenciasDevedor.length > 1) {
+        // Encontrou múltiplas dívidas - Cria resumo!
+        const totalDevido = pendenciasDevedor.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
+        
+        msg = "Olá " + t.entity.trim() + "! Tudo bem?\nPassando para lembrar dos valores em aberto referentes a este mês:\n\n";
+        
+        pendenciasDevedor.forEach(item => {
+          msg += "- *" + item.description + "*: " + fmtMoney(item.amount) + " (Venc: " + fmtDate(item.date) + ")\n";
+        });
+
+        msg += "\n*Total devido: " + fmtMoney(totalDevido) + "*\n\nQualquer dúvida, estou à disposição!";
+      } else {
+        // Encontrou apenas 1 dívida (Mensagem Padrão)
+        msg = "Olá " + t.entity.trim() + "! Tudo bem?\nPassando para lembrar do valor de *" + fmtMoney(t.amount) + "* referente a *" + t.description + "* com vencimento em *" + fmtDate(t.date) + "*.\nQualquer dúvida, estou à disposição!";
+      }
+    } else {
+      // Devedor Vazio (Mensagem Padrão)
+      msg = "Olá! Tudo bem?\nPassando para lembrar do valor de *" + fmtMoney(t.amount) + "* referente a *" + t.description + "* com vencimento em *" + fmtDate(t.date) + "*.\nQualquer dúvida, estou à disposição!";
+    }
+
     window.open("https://wa.me/?text=" + encodeURIComponent(msg), "_blank");
   };
 
-  // --- Processamento de Dados (Filtros e Cálculos) ---
-
-  const monthTransactions = useMemo(() => {
-    return transactions.filter(t => t.date?.startsWith(selectedMonth));
-  }, [transactions, selectedMonth]);
+  // --- Cálculos Adicionais do Dashboard ---
 
   const dashboardData = useMemo(() => {
     const rec = monthTransactions.filter(t => t.type === "receivable");
@@ -592,7 +636,7 @@ export default function FinanceApp() {
                     <button onClick={() => openEditModal(t)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px", borderRadius: 10, border: "none", background: T.soft, color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                       <Edit3 size={14} /> Editar
                     </button>
-                    {/* Botão de WhatsApp para Lançamentos a Receber Pendentes */}
+                    {/* Botão de WhatsApp Refatorado: Pode agregar todo o devedor */}
                     {t.type === "receivable" && !t.status && (
                       <button onClick={(e) => handleWhatsApp(t, e)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px", borderRadius: 10, border: "none", background: "rgba(34,197,94,0.15)", color: "#10b981", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                         <MessageCircle size={14} /> Cobrar
