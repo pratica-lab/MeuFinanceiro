@@ -3,7 +3,7 @@ import {
   Plus, Trash2, CheckCircle, Circle, Search, Loader2,
   Sun, Moon, Repeat, X, Check, LogOut,
   Edit3, Star, Eye, EyeOff, TrendingUp, TrendingDown, 
-  Wallet, AlertCircle, ChevronLeft, ChevronRight, MessageCircle
+  Wallet, AlertCircle, ChevronLeft, ChevronRight, MessageCircle, FileText, Download, Share2
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import {
@@ -66,6 +66,18 @@ const StatusBadge = ({ days, status }) => {
   return null;
 };
 
+// Loader Dinâmico do html2canvas para gerar a imagem do resumo
+const loadHtml2Canvas = async () => {
+  if (window.html2canvas) return window.html2canvas;
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+    script.onload = () => resolve(window.html2canvas);
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+};
+
 export default function FinanceApp() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -89,6 +101,10 @@ export default function FinanceApp() {
   const [expandId, setExpandId] = useState(null);
   const [showBalanceValues, setShowBalanceValues] = useState(true);
 
+  // Estados do Recibo/Resumo
+  const [receiptEntity, setReceiptEntity] = useState(null);
+  const [isGeneratingImg, setIsGeneratingImg] = useState(false);
+
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof window !== "undefined") return localStorage.getItem("financeAppTheme") !== "light";
     return true;
@@ -104,12 +120,12 @@ export default function FinanceApp() {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
-  // Injeção de Estilos CSS e FAVICON seguro
+  // Injeção de Estilos CSS e FAVICON Seguro
   useEffect(() => {
     document.title = "Meu Financeiro";
     localStorage.setItem("financeAppTheme", isDarkMode ? "dark" : "light");
     
-    // FAVICON - Ícone SVG idêntico ao do Header gerado em tempo de execução
+    // Injeta Favicon SVG Dinamicamente
     let favicon = document.querySelector("link[rel~='icon']");
     if (!favicon) {
       favicon = document.createElement("link");
@@ -117,10 +133,9 @@ export default function FinanceApp() {
       favicon.type = "image/svg+xml";
       document.head.appendChild(favicon);
     }
-    const svgIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#8b5cf6"/></linearGradient></defs><rect width="100" height="100" rx="25" fill="url(#grad)"/><g transform="translate(20, 20) scale(2.5)" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></g></svg>';
-    favicon.href = "data:image/svg+xml," + encodeURIComponent(svgIcon);
+    const svgIcon = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='grad' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' stop-color='%236366f1'/><stop offset='100%' stop-color='%238b5cf6'/></linearGradient></defs><rect width='100' height='100' rx='25' fill='url(%23grad)'/><g transform='translate(20, 20) scale(2.5)' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21 12V7H5a2 2 0 0 1 0-4h14v4'/><path d='M3 5v14a2 2 0 0 0 2 2h16v-5'/><path d='M18 12a2 2 0 0 0 0 4h4v-4Z'/></g></svg>";
+    favicon.href = "data:image/svg+xml," + svgIcon;
 
-    // FONTES E ESTILOS
     if (!document.getElementById("finance-fonts")) {
       const link = document.createElement("link");
       link.id = "finance-fonts";
@@ -282,7 +297,6 @@ export default function FinanceApp() {
         let count = 1;
         let isInfinite = false;
 
-        // Se for Fixa, cria 120 meses (10 anos), se for parcelado pega a quantidade
         if (formData.recurrenceType === "fixed") { count = 120; isInfinite = true; } 
         else if (formData.recurrenceType === "installments") { count = Math.max(2, parseInt(formData.repeatCount, 10)); }
         
@@ -358,43 +372,55 @@ export default function FinanceApp() {
     }
   };
 
-  // --- Função Refatorada para Cobrança Inteligente Agrupada no WhatsApp ---
+  // --- Função: Mensagem Simples do WhatsApp ---
   const handleWhatsApp = (t, e) => {
     e.stopPropagation();
-    
-    let msg = "";
-
-    // Se o item tem Devedor (Entity), busca todos os itens pendentes dele neste mês
-    if (t.entity && t.entity.trim() !== "") {
-      const devedorTarget = t.entity.trim().toLowerCase();
-      const pendenciasDevedor = monthTransactions.filter(
-        item => item.type === "receivable" && 
-                !item.status && 
-                item.entity && 
-                item.entity.trim().toLowerCase() === devedorTarget
-      );
-
-      if (pendenciasDevedor.length > 1) {
-        // Encontrou múltiplas dívidas - Cria resumo!
-        const totalDevido = pendenciasDevedor.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
-        
-        msg = "Olá " + t.entity.trim() + "! Tudo bem?\nPassando para lembrar dos valores em aberto referentes a este mês:\n\n";
-        
-        pendenciasDevedor.forEach(item => {
-          msg += "- *" + item.description + "*: " + fmtMoney(item.amount) + " (Venc: " + fmtDate(item.date) + ")\n";
-        });
-
-        msg += "\n*Total devido: " + fmtMoney(totalDevido) + "*\n\nQualquer dúvida, estou à disposição!";
-      } else {
-        // Encontrou apenas 1 dívida (Mensagem Padrão)
-        msg = "Olá " + t.entity.trim() + "! Tudo bem?\nPassando para lembrar do valor de *" + fmtMoney(t.amount) + "* referente a *" + t.description + "* com vencimento em *" + fmtDate(t.date) + "*.\nQualquer dúvida, estou à disposição!";
-      }
-    } else {
-      // Devedor Vazio (Mensagem Padrão)
-      msg = "Olá! Tudo bem?\nPassando para lembrar do valor de *" + fmtMoney(t.amount) + "* referente a *" + t.description + "* com vencimento em *" + fmtDate(t.date) + "*.\nQualquer dúvida, estou à disposição!";
-    }
-
+    const msg = "Olá" + (t.entity ? " " + t.entity.trim() : "") + "! Tudo bem?\nPassando para lembrar do valor de *" + fmtMoney(t.amount) + "* referente a *" + t.description + "* com vencimento em *" + fmtDate(t.date) + "*.\nQualquer dúvida, estou à disposição!";
     window.open("https://wa.me/?text=" + encodeURIComponent(msg), "_blank");
+  };
+
+  // --- Função: Gerador de Imagem do Resumo (html2canvas) ---
+  const handleGenerateImage = async () => {
+    setIsGeneratingImg(true);
+    try {
+      const h2c = await loadHtml2Canvas();
+      const element = document.getElementById("receipt-content-to-capture");
+      
+      const canvas = await h2c(element, { 
+        scale: 2, 
+        backgroundColor: "#ffffff", // Fundo sempre branco para a imagem exportada
+        useCORS: true
+      });
+      
+      const dataUrl = canvas.toDataURL("image/png");
+
+      // Tenta compartilhar nativamente (Web Share API) em celulares
+      try {
+        const blob = await (await fetch(dataUrl)).blob();
+        const file = new File([blob], "resumo_" + receiptEntity + ".png", { type: blob.type });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            title: "Resumo de Pendências - " + receiptEntity,
+            files: [file]
+          });
+          setIsGeneratingImg(false);
+          return;
+        }
+      } catch (e) {
+        console.log("Web Share não suportado, usando download normal.");
+      }
+
+      // Fallback: Download da Imagem no Navegador
+      const link = document.createElement("a");
+      link.download = "Resumo_" + receiptEntity + ".png";
+      link.href = dataUrl;
+      link.click();
+      showToast("Imagem gerada com sucesso!");
+    } catch (err) {
+      showToast("Erro ao gerar imagem", "error");
+      console.error(err);
+    }
+    setIsGeneratingImg(false);
   };
 
   // --- Cálculos Adicionais do Dashboard ---
@@ -428,6 +454,17 @@ export default function FinanceApp() {
 
     return result.sort((a, b) => new Date(a.date) - new Date(b.date));
   }, [monthTransactions, activeTab, searchTerm, filterStatus]);
+
+  // Pendências Específicas para o Modal de Recibo
+  const receiptItems = useMemo(() => {
+    if (!receiptEntity) return [];
+    const target = receiptEntity.trim().toLowerCase();
+    return monthTransactions
+      .filter(t => t.type === "receivable" && !t.status && t.entity && t.entity.trim().toLowerCase() === target)
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+  }, [monthTransactions, receiptEntity]);
+
+  const receiptTotal = useMemo(() => receiptItems.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0), [receiptItems]);
 
   // Tema
   const T = isDarkMode ? {
@@ -477,7 +514,7 @@ export default function FinanceApp() {
         </div>
       )}
 
-      {/* Modal de Confirmação Customizado (Substitui confirm do Navegador) */}
+      {/* Modal de Confirmação Customizado */}
       {confirmDialog && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, backdropFilter: "blur(8px)" }}>
           <div className="slide-up" style={{ width: "100%", maxWidth: 360, background: T.card, borderRadius: 24, padding: "28px 24px", border: "1px solid " + T.border }}>
@@ -533,7 +570,6 @@ export default function FinanceApp() {
 
         {/* DASHBOARD COMPACTO (VISÃO ÚNICA) */}
         <div className="fade-in" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
-          {/* Receitas */}
           <div className="glow-green" style={{ background: "linear-gradient(135deg, rgba(16,185,129,0.1), rgba(16,185,129,0.05))", border: "1px solid rgba(16,185,129,0.2)", borderRadius: 18, padding: "16px" }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#10b981", textTransform: "uppercase", marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}><TrendingUp size={12} /> A Receber</div>
             <div className="mono" style={{ fontSize: showBalanceValues ? 18 : 14, fontWeight: 800, color: T.text }}>{showBalanceValues ? fmtMoney(dashboardData.totalRec) : "R$ ••••"}</div>
@@ -542,7 +578,6 @@ export default function FinanceApp() {
             </div>
           </div>
           
-          {/* Despesas */}
           <div className="glow-red" style={{ background: "linear-gradient(135deg, rgba(239,68,68,0.1), rgba(239,68,68,0.05))", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 18, padding: "16px" }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#ef4444", textTransform: "uppercase", marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}><TrendingDown size={12} /> A Pagar</div>
             <div className="mono" style={{ fontSize: showBalanceValues ? 18 : 14, fontWeight: 800, color: T.text }}>{showBalanceValues ? fmtMoney(dashboardData.totalPay) : "R$ ••••"}</div>
@@ -551,7 +586,6 @@ export default function FinanceApp() {
             </div>
           </div>
 
-          {/* Saldo Final */}
           <div style={{ gridColumn: "1 / -1", background: T.surface, border: "1px solid " + T.border, borderRadius: 18, padding: "16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
               <div style={{ fontSize: 12, fontWeight: 600, color: T.muted, textTransform: "uppercase", marginBottom: 2 }}>Saldo Projetado</div>
@@ -601,17 +635,14 @@ export default function FinanceApp() {
               <div key={t.id} className="fade-in" style={{ background: T.card, border: "1px solid " + (t.priority ? "#f59e0b" : (isOverdue ? "rgba(239,68,68,0.4)" : T.border)), borderRadius: 16, overflow: "hidden", boxShadow: t.priority ? "inset 3px 0 0 #f59e0b" : "none" }}>
                 <div onClick={() => setExpandId(isExpanded ? null : t.id)} style={{ padding: "14px", cursor: "pointer", display: "flex", gap: 12, alignItems: "flex-start" }}>
                   
-                  {/* Toggle Circular */}
                   <button onClick={(e) => toggleStatus(t.id, t.status, e)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0, marginTop: 2 }}>
                     {t.status ? <CheckCircle size={24} color="#10b981" /> : <Circle size={24} color={isOverdue ? "#ef4444" : T.muted} />}
                   </button>
 
-                  {/* Ícone Emojis */}
                   <div style={{ width: 40, height: 40, borderRadius: 12, background: T.soft, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>
                     {t.icon || "💸"}
                   </div>
 
-                  {/* Informações Centrais */}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                       <span style={{ fontSize: 14, fontWeight: 600, color: t.status ? T.muted : T.text, textDecoration: t.status ? "line-through" : "none", lineHeight: 1.3 }}>
@@ -630,18 +661,27 @@ export default function FinanceApp() {
                   </div>
                 </div>
 
-                {/* Ações ao Expandir o Item */}
+                {/* AÇÕES EXPANDIDAS COM O NOVO BOTÃO "RESUMO" */}
                 {isExpanded && (
-                  <div className="slide-up" style={{ padding: "0 14px 14px 78px", display: "flex", gap: 8 }}>
-                    <button onClick={() => openEditModal(t)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px", borderRadius: 10, border: "none", background: T.soft, color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                  <div className="slide-up" style={{ padding: "0 14px 14px 78px", display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    <button onClick={() => openEditModal(t)} style={{ flex: 1, minWidth: 60, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px", borderRadius: 10, border: "none", background: T.soft, color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                       <Edit3 size={14} /> Editar
                     </button>
-                    {/* Botão de WhatsApp Refatorado: Pode agregar todo o devedor */}
+                    
                     {t.type === "receivable" && !t.status && (
-                      <button onClick={(e) => handleWhatsApp(t, e)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px", borderRadius: 10, border: "none", background: "rgba(34,197,94,0.15)", color: "#10b981", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                        <MessageCircle size={14} /> Cobrar
-                      </button>
+                      <>
+                        <button onClick={(e) => handleWhatsApp(t, e)} style={{ flex: 1, minWidth: 80, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px", borderRadius: 10, border: "none", background: "rgba(34,197,94,0.15)", color: "#10b981", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                          <MessageCircle size={14} /> Cobrar
+                        </button>
+                        {/* NOVO BOTÃO: Abre o gerador de imagem agrupada apenas se tiver devedor configurado */}
+                        {t.entity && (
+                          <button onClick={(e) => { e.stopPropagation(); setReceiptEntity(t.entity); }} style={{ flex: 1, minWidth: 80, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px", borderRadius: 10, border: "none", background: "rgba(99,102,241,0.15)", color: "#6366f1", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                            <FileText size={14} /> Resumo
+                          </button>
+                        )}
+                      </>
                     )}
+
                     <button onClick={(e) => handleDeleteRequest(t, e)} style={{ width: 36, display: "flex", alignItems: "center", justifyContent: "center", padding: "8px", borderRadius: 10, border: "none", background: "rgba(239,68,68,0.15)", color: "#ef4444", cursor: "pointer", flexShrink: 0 }}>
                       <Trash2 size={16} />
                     </button>
@@ -665,6 +705,65 @@ export default function FinanceApp() {
         <Plus size={28} color="white" />
       </button>
 
+      {/* ─── MODAL DE RECIBO / RESUMO DO DEVEDOR (FILTRO EM IMAGEM) ─── */}
+      {receiptEntity && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 90, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(12px)" }}>
+          
+          <div style={{ width: "100%", maxWidth: 400, display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <button onClick={() => setReceiptEntity(null)} style={{ background: "rgba(255,255,255,0.2)", border: "none", borderRadius: 99, padding: 8, cursor: "pointer", color: "white" }}>
+              <X size={24} />
+            </button>
+          </div>
+
+          {/* O container a ser "printado" na imagem */}
+          <div id="receipt-content-to-capture" style={{ width: "100%", maxWidth: 400, background: "#ffffff", borderRadius: 16, padding: 24, color: "#0f172a", fontFamily: "'Sora', sans-serif" }}>
+            <div style={{ textAlign: "center", marginBottom: 20, borderBottom: "2px dashed #cbd5e1", paddingBottom: 16 }}>
+              <div style={{ width: 48, height: 48, borderRadius: 14, background: "linear-gradient(135deg, #6366f1, #8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
+                <Wallet size={24} color="white" />
+              </div>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1e293b" }}>Resumo de Pendências</h2>
+              <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>{fmtMonthYear(selectedMonth)}</div>
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "1px" }}>Devedor</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#0f172a" }}>{receiptEntity}</div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
+              {receiptItems.length > 0 ? receiptItems.map(item => (
+                <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: 8, borderBottom: "1px solid #f1f5f9" }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#334155" }}>{item.description}</div>
+                    <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>Venc: {fmtDate(item.date)}</div>
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", color: "#0f172a" }}>
+                    {fmtMoney(item.amount)}
+                  </div>
+                </div>
+              )) : (
+                <div style={{ textAlign: "center", fontSize: 13, color: "#64748b", padding: "12px 0" }}>Nenhuma pendência encontrada.</div>
+              )}
+            </div>
+
+            <div style={{ background: "#f8fafc", borderRadius: 12, padding: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#64748b" }}>TOTAL DEVIDO</span>
+              <span style={{ fontSize: 20, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", color: "#6366f1" }}>
+                {fmtMoney(receiptTotal)}
+              </span>
+            </div>
+          </div>
+
+          {/* Botão Flutuante fora do print */}
+          {receiptItems.length > 0 && (
+            <button onClick={handleGenerateImage} disabled={isGeneratingImg} style={{ marginTop: 24, width: "100%", maxWidth: 400, padding: 16, borderRadius: 14, border: "none", background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "white", fontSize: 15, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, boxShadow: "0 8px 32px rgba(99,102,241,0.4)" }}>
+              {isGeneratingImg ? <Loader2 className="spin-slow" size={20} /> : <><Share2 size={18} /> Compartilhar / Baixar Imagem</>}
+            </button>
+          )}
+        </div>
+      )}
+
+
       {/* ─── MODAL DE ADIÇÃO / EDIÇÃO ─── */}
       {isModalOpen && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 50, display: "flex", alignItems: "flex-end", justifyContent: "center", backdropFilter: "blur(8px)" }}>
@@ -676,7 +775,6 @@ export default function FinanceApp() {
               <button onClick={closeModal} style={{ background: T.soft, border: "none", borderRadius: 10, padding: "6px", cursor: "pointer", color: T.muted }}><X size={18} /></button>
             </div>
 
-            {/* Abas Receita/Despesa (só aparece na criação) */}
             {!editingItem && (
               <div style={{ display: "flex", background: T.soft, borderRadius: 12, padding: 4, marginBottom: 20 }}>
                 {[{ id: "receivable", l: "📥 Receita", c: "#10b981" }, { id: "payable", l: "📤 Despesa", c: "#ef4444" }].map((tab) => (
@@ -688,8 +786,6 @@ export default function FinanceApp() {
             )}
 
             <form onSubmit={onFormSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              
-              {/* Seletor de Ícone Horizontal Customizado */}
               <div>
                 <label style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.5px", display: "block", marginBottom: 8 }}>Ícone Visual</label>
                 <div className="no-scrollbar" style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
@@ -722,7 +818,6 @@ export default function FinanceApp() {
                 <input value={formData.entity} onChange={(e) => setFormData({ ...formData, entity: e.target.value })} placeholder="Nome da pessoa ou empresa..." style={{ width: "100%", marginTop: 6, padding: "14px", background: T.input, border: "1px solid " + T.border, borderRadius: 12, color: T.text, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
               </div>
 
-              {/* Controles de Status */}
               <div style={{ display: "flex", gap: 10 }}>
                 <button type="button" onClick={() => setFormData({ ...formData, priority: !formData.priority })} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px", borderRadius: 12, border: "1px solid " + (formData.priority ? "#f59e0b" : T.border), background: formData.priority ? "rgba(245,158,11,0.15)" : T.soft, color: formData.priority ? "#f59e0b" : T.text, cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
                   <Star size={16} fill={formData.priority ? "#f59e0b" : "none"} /> Prioridade
@@ -734,7 +829,6 @@ export default function FinanceApp() {
                 )}
               </div>
 
-              {/* Configuração de Recorrência Melhorada */}
               {!editingItem && (
                 <div style={{ background: T.soft, borderRadius: 14, padding: "16px", border: "1px solid " + T.border }}>
                   <label style={{ fontSize: 12, fontWeight: 700, color: T.text, display: "block", marginBottom: 12 }}>Como funciona essa conta?</label>
@@ -764,7 +858,6 @@ export default function FinanceApp() {
                 </div>
               )}
 
-              {/* Botões do Formulário */}
               <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
                 <button type="button" onClick={closeModal} style={{ flex: 1, padding: "16px", borderRadius: 14, border: "1px solid " + T.border, background: "transparent", color: T.text, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
                   Cancelar
