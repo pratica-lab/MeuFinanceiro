@@ -1,4 +1,3 @@
-```react
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Plus, Trash2, CheckCircle, Circle, Search, Loader2,
@@ -773,6 +772,3 @@ export default function FinanceApp() {
     </>
   );
 }
-
-
-```
