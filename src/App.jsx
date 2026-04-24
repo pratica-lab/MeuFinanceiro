@@ -1,9 +1,9 @@
 ```react
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
-  Plus, Trash2, CheckCircle, Circle, Search, Cloud, Loader2,
-  Sun, Moon, Repeat, X, Check, Zap, LogOut,
-  Edit3, Star, Eye, EyeOff, Shield, TrendingUp, TrendingDown, 
+  Plus, Trash2, CheckCircle, Circle, Search, Loader2,
+  Sun, Moon, Repeat, X, Check, LogOut,
+  Edit3, Star, Eye, EyeOff, TrendingUp, TrendingDown, 
   Wallet, AlertCircle, Bell, ChevronLeft, ChevronRight, MessageCircle
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
@@ -13,7 +13,7 @@ import {
   signInWithCustomToken
 } from "firebase/auth";
 import {
-  getFirestore, collection, updateDoc, deleteDoc, doc,
+  getFirestore, collection, updateDoc, doc,
   onSnapshot, writeBatch
 } from "firebase/firestore";
 
@@ -438,7 +438,7 @@ export default function FinanceApp() {
             </div>
             <div>
               <div style={{ fontSize: 14, fontWeight: 800, letterSpacing: "-0.3px" }}>Financeiro</div>
-              <div style={{ fontSize: 11, color: T.muted }}>Olá, {user?.displayName?.split(" ")[0]}</div>
+              <div style={{ fontSize: 11, color: T.muted }}>Olá, {user?.displayName?.split(" ")[0] || "Usuário"}</div>
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
@@ -713,7 +713,7 @@ export default function FinanceApp() {
         </div>
       )}
 
-      {/* MODAL: EDIÇÃO RECORRENTE (Exatamente o mesmo comportamento mantido) */}
+      {/* MODAL: EDIÇÃO RECORRENTE */}
       {recurringEditModalOpen && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, backdropFilter: "blur(8px)" }}>
           <div className="slide-up" style={{ width: "100%", maxWidth: 380, background: T.card, borderRadius: 24, padding: "28px 24px", border: `1px solid ${T.border}` }}>
@@ -731,7 +731,7 @@ export default function FinanceApp() {
         </div>
       )}
 
-      {/* MODAL: EXCLUSÃO RECORRENTE (Exatamente o mesmo comportamento mantido) */}
+      {/* MODAL: EXCLUSÃO RECORRENTE */}
       {deleteModalOpen && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, backdropFilter: "blur(8px)" }}>
           <div className="slide-up" style={{ width: "100%", maxWidth: 380, background: T.card, borderRadius: 24, padding: "28px 24px", border: `1px solid rgba(239,68,68,0.2)` }}>
