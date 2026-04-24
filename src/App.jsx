@@ -1,5 +1,5 @@
 ```react
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Plus, Trash2, CheckCircle, Circle, Search, Loader2,
   Sun, Moon, Repeat, X, Check, LogOut,
@@ -39,16 +39,14 @@ const ICONS = [
   "🏖️", "🐾", "🐶", "🎁", "🔧", "🛠️", "👗", "👟", "👶", "📦", "📄"
 ];
 
-// Utilitários de Formatação (Refatorados para concatenação nativa para evitar bugs de parser no esbuild)
+// Utilitários de Formatação
 const fmtMoney = (v) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v || 0);
 const fmtDate = (d) => d ? d.split("-").reverse().join("/") : "-";
 const fmtMonthYear = (str) => {
   if (!str) return "";
   const parts = str.split("-");
-  const y = parts[0];
-  const m = parts[1];
   const months = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
-  return months[parseInt(m, 10) - 1] + " " + y;
+  return months[parseInt(parts[1], 10) - 1] + " " + parts[0];
 };
 
 const getDaysUntil = (dateStr) => {
@@ -107,39 +105,58 @@ export default function FinanceApp() {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
-  // Injeção de Estilos CSS e Gerenciamento de Tema
+  // Injeção de Estilos CSS segura (Sem template literals e sem @import)
   useEffect(() => {
     document.title = "Meu Financeiro";
     localStorage.setItem("financeAppTheme", isDarkMode ? "dark" : "light");
-    const style = document.createElement("style");
-    style.innerHTML = `
-      @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
-      * { box-sizing: border-box; }
-      body { margin: 0; font-family: 'Sora', sans-serif; background: ${isDarkMode ? '#0b1120' : '#f0f4f8'}; color: ${isDarkMode ? '#f1f5f9' : '#0f172a'}; transition: background 0.3s, color 0.3s; }
-      ::-webkit-scrollbar { width: 4px; }
-      ::-webkit-scrollbar-track { background: transparent; }
-      ::-webkit-scrollbar-thumb { background: rgba(120,120,120,0.3); border-radius: 4px; }
-      .mono { font-family: 'JetBrains Mono', monospace; }
-      input[type=range] { -webkit-appearance: none; appearance: none; height: 6px; border-radius: 999px; outline: none; background: #334155; }
-      input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #6366f1; cursor: pointer; box-shadow: 0 0 0 3px rgba(99,102,241,0.3); }
-      input[type=month]::-webkit-calendar-picker-indicator, input[type=date]::-webkit-calendar-picker-indicator { filter: ${isDarkMode ? 'invert(1)' : 'none'}; opacity: 0.5; cursor: pointer; }
-      .fade-in { animation: fadeIn 0.3s ease; }
-      @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-      .slide-up { animation: slideUp 0.35s cubic-bezier(0.34,1.56,0.64,1); }
-      @keyframes slideUp { from { opacity: 0; transform: translateY(20px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
-      .toast-enter { animation: toastIn 0.3s ease; }
-      @keyframes toastIn { from { opacity: 0; transform: translateX(100%); } to { opacity: 1; transform: translateX(0); } }
-      .glow-green { box-shadow: 0 0 20px rgba(16,185,129,0.15); }
-      .glow-red { box-shadow: 0 0 20px rgba(239,68,68,0.15); }
-      .icon-btn { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 10px; cursor: pointer; transition: all 0.2s; }
-      .icon-btn:hover { background: rgba(120,120,120,0.1); }
-      .no-scrollbar::-webkit-scrollbar { display: none; }
-      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-      .spin-slow { animation: spin 2s linear infinite; }
-      @keyframes spin { 100% { transform: rotate(360deg); } }
-    `;
-    document.head.appendChild(style);
-    return () => document.head.removeChild(style);
+    
+    // Injeta a fonte via Link
+    if (!document.getElementById("finance-fonts")) {
+      const link = document.createElement("link");
+      link.id = "finance-fonts";
+      link.rel = "stylesheet";
+      link.href = "https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap";
+      document.head.appendChild(link);
+    }
+
+    // Injeta os estilos dinâmicos
+    const styleId = "finance-dynamic-style";
+    let style = document.getElementById(styleId);
+    if (!style) {
+      style = document.createElement("style");
+      style.id = styleId;
+      document.head.appendChild(style);
+    }
+
+    const bgVar = isDarkMode ? "#0b1120" : "#f0f4f8";
+    const textVar = isDarkMode ? "#f1f5f9" : "#0f172a";
+    const invertVar = isDarkMode ? "invert(1)" : "none";
+
+    style.innerHTML = "" +
+      "* { box-sizing: border-box; }\n" +
+      "body { margin: 0; font-family: 'Sora', sans-serif; background: " + bgVar + "; color: " + textVar + "; transition: background 0.3s, color 0.3s; }\n" +
+      "::-webkit-scrollbar { width: 4px; }\n" +
+      "::-webkit-scrollbar-track { background: transparent; }\n" +
+      "::-webkit-scrollbar-thumb { background: rgba(120,120,120,0.3); border-radius: 4px; }\n" +
+      ".mono { font-family: 'JetBrains Mono', monospace; }\n" +
+      "input[type=range] { -webkit-appearance: none; appearance: none; height: 6px; border-radius: 999px; outline: none; background: #334155; }\n" +
+      "input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #6366f1; cursor: pointer; box-shadow: 0 0 0 3px rgba(99,102,241,0.3); }\n" +
+      "input[type=month]::-webkit-calendar-picker-indicator, input[type=date]::-webkit-calendar-picker-indicator { filter: " + invertVar + "; opacity: 0.5; cursor: pointer; }\n" +
+      ".fade-in { animation: fadeIn 0.3s ease; }\n" +
+      "@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }\n" +
+      ".slide-up { animation: slideUp 0.35s cubic-bezier(0.34,1.56,0.64,1); }\n" +
+      "@keyframes slideUp { from { opacity: 0; transform: translateY(20px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }\n" +
+      ".toast-enter { animation: toastIn 0.3s ease; }\n" +
+      "@keyframes toastIn { from { opacity: 0; transform: translateX(100%); } to { opacity: 1; transform: translateX(0); } }\n" +
+      ".glow-green { box-shadow: 0 0 20px rgba(16,185,129,0.15); }\n" +
+      ".glow-red { box-shadow: 0 0 20px rgba(239,68,68,0.15); }\n" +
+      ".icon-btn { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 10px; cursor: pointer; transition: all 0.2s; }\n" +
+      ".icon-btn:hover { background: rgba(120,120,120,0.1); }\n" +
+      ".no-scrollbar::-webkit-scrollbar { display: none; }\n" +
+      ".no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }\n" +
+      ".spin-slow { animation: spin 2s linear infinite; }\n" +
+      "@keyframes spin { 100% { transform: rotate(360deg); } }";
+
   }, [isDarkMode]);
 
   // Autenticação Firebase
