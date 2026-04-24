@@ -525,24 +525,24 @@ export default function FinanceApp() {
 
   const handleExportImage = async () => {
     setShowExportMenu(false);
-    
+
     // Pequeno atraso para garantir que o menu feche completamente antes da captura
     setTimeout(async () => {
       try {
         if (!listRef.current) return;
-        
+
         // Suporte tanto para o pacote NPM (local) quanto fallback de CDN
         let h2c = window.html2canvas;
         if (!h2c) {
           const module = await import("html2canvas");
           h2c = module.default || module;
         }
-        
+
         if (!h2c) {
           alert("Aguarde o carregamento da ferramenta de captura...");
           return;
         }
-        
+
         const canvas = await h2c(listRef.current, {
           backgroundColor: isDarkMode ? "#0f172a" : "#f9fafb",
           scale: 2,
@@ -558,7 +558,7 @@ export default function FinanceApp() {
             });
           }
         });
-        
+
         const link = document.createElement("a");
         link.download = `financeiro_print.png`;
         link.href = canvas.toDataURL("image/png");
