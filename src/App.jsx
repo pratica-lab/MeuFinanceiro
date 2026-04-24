@@ -751,6 +751,3 @@ export default function FinanceApp() {
     </>
   );
 }
-
-
-```
