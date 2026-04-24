@@ -1,4 +1,3 @@
-```react
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Plus, Trash2, CheckCircle, Circle, Search, Cloud, Loader2,
@@ -155,7 +154,12 @@ export default function FinanceApp() {
           await signInWithCustomToken(auth, __initial_auth_token);
         }
       } catch (e) {
-        console.error("Auth init error:", e);
+        // Ignora silenciosamente o erro de mismatch quando um Firebase customizado for usado
+        if (e.code === 'auth/custom-token-mismatch') {
+          console.log("Projeto Firebase customizado detectado. Aguardando login manual do usuário.");
+        } else {
+          console.error("Auth init error:", e);
+        }
       }
     };
     initAuth();
@@ -758,6 +762,3 @@ export default function FinanceApp() {
     </>
   );
 }
-
-
-```
