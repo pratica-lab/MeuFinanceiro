@@ -379,7 +379,7 @@ export default function FinanceApp() {
     window.open("https://wa.me/?text=" + encodeURIComponent(msg), "_blank");
   };
 
-  // --- Função: Gerador de Imagem do Resumo (html2canvas) ---
+  // --- Função: Gerador de Imagem do Resumo e Cobrança via WhatsApp ---
   const handleGenerateImage = async () => {
     setIsGeneratingImg(true);
     try {
@@ -393,6 +393,7 @@ export default function FinanceApp() {
       });
       
       const dataUrl = canvas.toDataURL("image/png");
+      const text = "Olá" + (receiptEntity ? " " + receiptEntity.trim() : "") + "! Segue o resumo das pendências para acerto.";
 
       // Tenta compartilhar nativamente (Web Share API) em celulares
       try {
@@ -401,6 +402,7 @@ export default function FinanceApp() {
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
           await navigator.share({
             title: "Resumo de Pendências - " + receiptEntity,
+            text: text,
             files: [file]
           });
           setIsGeneratingImg(false);
@@ -410,12 +412,17 @@ export default function FinanceApp() {
         console.log("Web Share não suportado, usando download normal.");
       }
 
-      // Fallback: Download da Imagem no Navegador
+      // Fallback: Download da Imagem no Navegador e Abertura do WhatsApp
+      alert("Seu navegador não suporta envio direto. A imagem será baixada e o WhatsApp será aberto para você anexá-la na conversa.");
       const link = document.createElement("a");
       link.download = "Resumo_" + receiptEntity + ".png";
       link.href = dataUrl;
       link.click();
-      showToast("Imagem gerada com sucesso!");
+      
+      // Abre o WhatsApp com a mensagem pré-definida
+      window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank");
+      
+      showToast("Imagem gerada e WhatsApp aberto!");
     } catch (err) {
       showToast("Erro ao gerar imagem", "error");
       console.error(err);
@@ -754,10 +761,10 @@ export default function FinanceApp() {
             </div>
           </div>
 
-          {/* Botão Flutuante fora do print */}
+          {/* Botão Flutuante fora do print atualizado com WhatsApp */}
           {receiptItems.length > 0 && (
             <button onClick={handleGenerateImage} disabled={isGeneratingImg} style={{ marginTop: 24, width: "100%", maxWidth: 400, padding: 16, borderRadius: 14, border: "none", background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "white", fontSize: 15, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, boxShadow: "0 8px 32px rgba(99,102,241,0.4)" }}>
-              {isGeneratingImg ? <Loader2 className="spin-slow" size={20} /> : <><Share2 size={18} /> Compartilhar / Baixar Imagem</>}
+              {isGeneratingImg ? <Loader2 className="spin-slow" size={20} /> : <><MessageCircle size={18} /> Compartilhar no WhatsApp</>}
             </button>
           )}
         </div>
