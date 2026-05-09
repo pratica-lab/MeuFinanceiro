@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Plus, Trash2, CheckCircle, Circle, Search, Loader2,
   Sun, Moon, Repeat, X, Check, LogOut,
   Edit3, Star, Eye, EyeOff, TrendingUp, TrendingDown, 
-  Wallet, AlertCircle, ChevronLeft, ChevronRight, MessageCircle, Share2
+  Wallet, AlertCircle, ChevronLeft, ChevronRight, MessageCircle, FileText, Download, Share2
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import {
@@ -101,8 +101,8 @@ export default function FinanceApp() {
   const [expandId, setExpandId] = useState(null);
   const [showBalanceValues, setShowBalanceValues] = useState(true);
 
-  // Referência para exportar a imagem da lista
-  const listRef = useRef(null);
+  // Estados do Recibo/Resumo
+  const [receiptEntity, setReceiptEntity] = useState(null);
   const [isGeneratingImg, setIsGeneratingImg] = useState(false);
 
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -372,36 +372,36 @@ export default function FinanceApp() {
     }
   };
 
-  // --- Função: Compartilhar Visão Atual via WhatsApp ---
-  const handleShareWhatsApp = async () => {
+  // --- Função: Mensagem Simples do WhatsApp ---
+  const handleWhatsApp = (t, e) => {
+    e.stopPropagation();
+    const msg = "Olá" + (t.entity ? " " + t.entity.trim() : "") + "! Tudo bem?\nPassando para lembrar do valor de *" + fmtMoney(t.amount) + "* referente a *" + t.description + "* com vencimento em *" + fmtDate(t.date) + "*.\nQualquer dúvida, estou à disposição!";
+    window.open("https://wa.me/?text=" + encodeURIComponent(msg), "_blank");
+  };
+
+  // --- Função: Gerador de Imagem do Resumo e Cobrança via WhatsApp ---
+  const handleGenerateImage = async () => {
     setIsGeneratingImg(true);
     try {
       const h2c = await loadHtml2Canvas();
-      const element = listRef.current;
-      if (!element) return;
+      const element = document.getElementById("receipt-content-to-capture");
       
       const canvas = await h2c(element, { 
         scale: 2, 
-        backgroundColor: isDarkMode ? "#0b1120" : "#f0f4f8", 
-        useCORS: true,
-        logging: false,
-        onclone: (doc) => {
-          // Removemos os botões/elementos indesejados no "print"
-          const ignores = doc.querySelectorAll('[data-html2canvas-ignore]');
-          ignores.forEach(el => el.style.display = 'none');
-        }
+        backgroundColor: "#ffffff", // Fundo sempre branco para a imagem exportada
+        useCORS: true
       });
       
       const dataUrl = canvas.toDataURL("image/png");
-      const text = `Olá! Segue o resumo dos lançamentos para acerto.\nTotal: ${fmtMoney(filteredTotal)}`;
+      const text = "Olá" + (receiptEntity ? " " + receiptEntity.trim() : "") + "! Segue o resumo das pendências para acerto.";
 
       // Tenta compartilhar nativamente (Web Share API) em celulares
       try {
         const blob = await (await fetch(dataUrl)).blob();
-        const file = new File([blob], "cobranca_resumo.png", { type: blob.type });
+        const file = new File([blob], "resumo_" + receiptEntity + ".png", { type: blob.type });
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
           await navigator.share({
-            title: "Cobrança Financeiro",
+            title: "Resumo de Pendências - " + receiptEntity,
             text: text,
             files: [file]
           });
@@ -413,16 +413,16 @@ export default function FinanceApp() {
       }
 
       // Fallback: Download da Imagem no Navegador e Abertura do WhatsApp
-      alert("A imagem será salva no seu dispositivo para você enviar no WhatsApp em seguida.");
+      alert("Seu navegador não suporta envio direto. A imagem será baixada e o WhatsApp será aberto para você anexá-la na conversa.");
       const link = document.createElement("a");
-      link.download = "cobranca_resumo.png";
+      link.download = "Resumo_" + receiptEntity + ".png";
       link.href = dataUrl;
       link.click();
       
-      // Abre o WhatsApp
+      // Abre o WhatsApp com a mensagem pré-definida
       window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank");
       
-      showToast("Imagem gerada com sucesso!");
+      showToast("Imagem gerada e WhatsApp aberto!");
     } catch (err) {
       showToast("Erro ao gerar imagem", "error");
       console.error(err);
@@ -430,7 +430,7 @@ export default function FinanceApp() {
     setIsGeneratingImg(false);
   };
 
-  // --- Cálculos do Dashboard ---
+  // --- Cálculos Adicionais do Dashboard ---
 
   const dashboardData = useMemo(() => {
     const rec = monthTransactions.filter(t => t.type === "receivable");
@@ -462,8 +462,16 @@ export default function FinanceApp() {
     return result.sort((a, b) => new Date(a.date) - new Date(b.date));
   }, [monthTransactions, activeTab, searchTerm, filterStatus]);
 
-  // Soma de todos os itens *atualmente visíveis* na lista após o filtro
-  const filteredTotal = useMemo(() => filteredList.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0), [filteredList]);
+  // Pendências Específicas para o Modal de Recibo
+  const receiptItems = useMemo(() => {
+    if (!receiptEntity) return [];
+    const target = receiptEntity.trim().toLowerCase();
+    return monthTransactions
+      .filter(t => t.type === "receivable" && !t.status && t.entity && t.entity.trim().toLowerCase() === target)
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+  }, [monthTransactions, receiptEntity]);
+
+  const receiptTotal = useMemo(() => receiptItems.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0), [receiptItems]);
 
   // Tema
   const T = isDarkMode ? {
@@ -613,7 +621,7 @@ export default function FinanceApp() {
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
           <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, background: T.surface, border: "1px solid " + T.border, borderRadius: 12, padding: "0 12px" }}>
             <Search size={16} color={T.muted} />
-            <input placeholder="Buscar pessoa/despesa..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ flex: 1, padding: "12px 0", background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 14 }} />
+            <input placeholder="Buscar..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ flex: 1, padding: "12px 0", background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 14 }} />
             {searchTerm && <button onClick={() => setSearchTerm("")} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer" }}><X size={14} /></button>}
           </div>
           <div style={{ display: "flex", background: T.surface, border: "1px solid " + T.border, borderRadius: 12, overflow: "hidden" }}>
@@ -623,98 +631,145 @@ export default function FinanceApp() {
           </div>
         </div>
 
-        {/* ─── CONTAINER QUE SERÁ TRANSFORMADO EM IMAGEM ─── */}
-        <div ref={listRef} style={{ padding: "4px", margin: "-4px" }}>
-          
-          {/* CABEÇALHO DA IMAGEM: "Total Filtrado" e "Botão de Compartilhar" */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, padding: "0 4px" }}>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                Total Filtrado
-              </div>
-              <div className="mono" style={{ fontSize: 20, fontWeight: 800, color: activeTab === "receivable" ? "#10b981" : "#ef4444" }}>
-                {fmtMoney(filteredTotal)}
-              </div>
-            </div>
-            
-            <button 
-              data-html2canvas-ignore
-              onClick={handleShareWhatsApp} 
-              disabled={isGeneratingImg || filteredList.length === 0}
-              style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "white", fontSize: 13, fontWeight: 800, cursor: (isGeneratingImg || filteredList.length === 0) ? "not-allowed" : "pointer", boxShadow: "0 4px 12px rgba(99,102,241,0.3)", opacity: (isGeneratingImg || filteredList.length === 0) ? 0.6 : 1 }}
-            >
-              {isGeneratingImg ? <Loader2 size={16} className="spin-slow" /> : <><MessageCircle size={16} /> Cobrar</>}
-            </button>
-          </div>
+        {/* LISTA DE LANÇAMENTOS */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {filteredList.map((t) => {
+            const days = getDaysUntil(t.date);
+            const isOverdue = !t.status && days !== null && days < 0;
+            const isExpanded = expandId === t.id;
 
-          {/* LISTA DE LANÇAMENTOS */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {filteredList.map((t) => {
-              const days = getDaysUntil(t.date);
-              const isOverdue = !t.status && days !== null && days < 0;
-              const isExpanded = expandId === t.id;
+            return (
+              <div key={t.id} className="fade-in" style={{ background: T.card, border: "1px solid " + (t.priority ? "#f59e0b" : (isOverdue ? "rgba(239,68,68,0.4)" : T.border)), borderRadius: 16, overflow: "hidden", boxShadow: t.priority ? "inset 3px 0 0 #f59e0b" : "none" }}>
+                <div onClick={() => setExpandId(isExpanded ? null : t.id)} style={{ padding: "14px", cursor: "pointer", display: "flex", gap: 12, alignItems: "flex-start" }}>
+                  
+                  <button onClick={(e) => toggleStatus(t.id, t.status, e)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0, marginTop: 2 }}>
+                    {t.status ? <CheckCircle size={24} color="#10b981" /> : <Circle size={24} color={isOverdue ? "#ef4444" : T.muted} />}
+                  </button>
 
-              return (
-                <div key={t.id} className="fade-in" style={{ background: T.card, border: "1px solid " + (t.priority ? "#f59e0b" : (isOverdue ? "rgba(239,68,68,0.4)" : T.border)), borderRadius: 16, overflow: "hidden", boxShadow: t.priority ? "inset 3px 0 0 #f59e0b" : "none" }}>
-                  <div onClick={() => setExpandId(isExpanded ? null : t.id)} style={{ padding: "14px", cursor: "pointer", display: "flex", gap: 12, alignItems: "flex-start" }}>
-                    
-                    <button onClick={(e) => toggleStatus(t.id, t.status, e)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0, marginTop: 2 }}>
-                      {t.status ? <CheckCircle size={24} color="#10b981" /> : <Circle size={24} color={isOverdue ? "#ef4444" : T.muted} />}
-                    </button>
-
-                    <div style={{ width: 40, height: 40, borderRadius: 12, background: T.soft, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>
-                      {t.icon || "💸"}
-                    </div>
-
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                        <span style={{ fontSize: 14, fontWeight: 600, color: t.status ? T.muted : T.text, textDecoration: t.status ? "line-through" : "none", lineHeight: 1.3 }}>
-                          {t.description}
-                        </span>
-                        <span className="mono" style={{ fontSize: 14, fontWeight: 800, color: t.status ? T.muted : activeTab === "receivable" ? "#10b981" : "#ef4444", flexShrink: 0 }}>
-                          {showBalanceValues ? fmtMoney(t.amount) : "••••"}
-                        </span>
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
-                        <span style={{ fontSize: 12, color: T.muted }}>{fmtDate(t.date)}</span>
-                        {t.entity && <><span style={{ color: T.border }}>•</span><span style={{ fontSize: 12, color: T.muted }}>{t.entity}</span></>}
-                        {t.groupId && <span style={{ background: "rgba(99,102,241,0.1)", color: "#6366f1", fontSize: 9, padding: "2px 4px", borderRadius: 4, fontWeight: 700 }}>↻ {t.isInfinite ? "Fixa" : "Rec"}</span>}
-                        <StatusBadge days={days} status={t.status} />
-                      </div>
-                    </div>
+                  <div style={{ width: 40, height: 40, borderRadius: 12, background: T.soft, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>
+                    {t.icon || "💸"}
                   </div>
 
-                  {/* AÇÕES DE EDIÇÃO/EXCLUSÃO (ESCONDIDAS NA HORA DE TIRAR O PRINT) */}
-                  {isExpanded && (
-                    <div className="slide-up" data-html2canvas-ignore style={{ padding: "0 14px 14px 78px", display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      <button onClick={() => openEditModal(t)} style={{ flex: 1, minWidth: 60, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px", borderRadius: 10, border: "none", background: T.soft, color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                        <Edit3 size={14} /> Editar
-                      </button>
-
-                      <button onClick={(e) => handleDeleteRequest(t, e)} style={{ width: 36, display: "flex", alignItems: "center", justifyContent: "center", padding: "8px", borderRadius: 10, border: "none", background: "rgba(239,68,68,0.15)", color: "#ef4444", cursor: "pointer", flexShrink: 0 }}>
-                        <Trash2 size={16} />
-                      </button>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: t.status ? T.muted : T.text, textDecoration: t.status ? "line-through" : "none", lineHeight: 1.3 }}>
+                        {t.description}
+                      </span>
+                      <span className="mono" style={{ fontSize: 14, fontWeight: 800, color: t.status ? T.muted : activeTab === "receivable" ? "#10b981" : "#ef4444", flexShrink: 0 }}>
+                        {showBalanceValues ? fmtMoney(t.amount) : "••••"}
+                      </span>
                     </div>
-                  )}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+                      <span style={{ fontSize: 12, color: T.muted }}>{fmtDate(t.date)}</span>
+                      {t.entity && <><span style={{ color: T.border }}>•</span><span style={{ fontSize: 12, color: T.muted }}>{t.entity}</span></>}
+                      {t.groupId && <span style={{ background: "rgba(99,102,241,0.1)", color: "#6366f1", fontSize: 9, padding: "2px 4px", borderRadius: 4, fontWeight: 700 }}>↻ {t.isInfinite ? "Fixa" : "Rec"}</span>}
+                      <StatusBadge days={days} status={t.status} />
+                    </div>
+                  </div>
                 </div>
-              );
-            })}
-            {filteredList.length === 0 && (
-              <div style={{ textAlign: "center", padding: "48px 24px", color: T.muted }}>
-                <div style={{ fontSize: 40, marginBottom: 12, opacity: 0.5 }}>🍃</div>
-                <div style={{ fontSize: 14, fontWeight: 600 }}>Tudo limpo por aqui</div>
-                <div style={{ fontSize: 12, marginTop: 4 }}>Nenhum lançamento para exibir.</div>
-              </div>
-            )}
-          </div>
-        </div>
 
+                {/* AÇÕES EXPANDIDAS COM O NOVO BOTÃO "RESUMO" */}
+                {isExpanded && (
+                  <div className="slide-up" style={{ padding: "0 14px 14px 78px", display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    <button onClick={() => openEditModal(t)} style={{ flex: 1, minWidth: 60, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px", borderRadius: 10, border: "none", background: T.soft, color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                      <Edit3 size={14} /> Editar
+                    </button>
+                    
+                    {t.type === "receivable" && !t.status && (
+                      <>
+                        <button onClick={(e) => handleWhatsApp(t, e)} style={{ flex: 1, minWidth: 80, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px", borderRadius: 10, border: "none", background: "rgba(34,197,94,0.15)", color: "#10b981", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                          <MessageCircle size={14} /> Cobrar
+                        </button>
+                        {/* NOVO BOTÃO: Abre o gerador de imagem agrupada apenas se tiver devedor configurado */}
+                        {t.entity && (
+                          <button onClick={(e) => { e.stopPropagation(); setReceiptEntity(t.entity); }} style={{ flex: 1, minWidth: 80, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px", borderRadius: 10, border: "none", background: "rgba(99,102,241,0.15)", color: "#6366f1", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                            <FileText size={14} /> Resumo
+                          </button>
+                        )}
+                      </>
+                    )}
+
+                    <button onClick={(e) => handleDeleteRequest(t, e)} style={{ width: 36, display: "flex", alignItems: "center", justifyContent: "center", padding: "8px", borderRadius: 10, border: "none", background: "rgba(239,68,68,0.15)", color: "#ef4444", cursor: "pointer", flexShrink: 0 }}>
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {filteredList.length === 0 && (
+            <div style={{ textAlign: "center", padding: "48px 24px", color: T.muted }}>
+              <div style={{ fontSize: 40, marginBottom: 12, opacity: 0.5 }}>🍃</div>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>Tudo limpo por aqui</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>Nenhum lançamento para exibir.</div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* FAB - BOTÃO ADICIONAR FLUTUANTE */}
       <button onClick={openAddModal} style={{ position: "fixed", bottom: 24, right: 24, background: "linear-gradient(135deg, #6366f1, #8b5cf6)", border: "none", borderRadius: 20, width: 60, height: 60, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 8px 32px rgba(99,102,241,0.5)", zIndex: 30 }}>
         <Plus size={28} color="white" />
       </button>
+
+      {/* ─── MODAL DE RECIBO / RESUMO DO DEVEDOR (FILTRO EM IMAGEM) ─── */}
+      {receiptEntity && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 90, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(12px)" }}>
+          
+          <div style={{ width: "100%", maxWidth: 400, display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <button onClick={() => setReceiptEntity(null)} style={{ background: "rgba(255,255,255,0.2)", border: "none", borderRadius: 99, padding: 8, cursor: "pointer", color: "white" }}>
+              <X size={24} />
+            </button>
+          </div>
+
+          {/* O container a ser "printado" na imagem */}
+          <div id="receipt-content-to-capture" style={{ width: "100%", maxWidth: 400, background: "#ffffff", borderRadius: 16, padding: 24, color: "#0f172a", fontFamily: "'Sora', sans-serif" }}>
+            <div style={{ textAlign: "center", marginBottom: 20, borderBottom: "2px dashed #cbd5e1", paddingBottom: 16 }}>
+              <div style={{ width: 48, height: 48, borderRadius: 14, background: "linear-gradient(135deg, #6366f1, #8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
+                <Wallet size={24} color="white" />
+              </div>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1e293b" }}>Resumo de Pendências</h2>
+              <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>{fmtMonthYear(selectedMonth)}</div>
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "1px" }}>Devedor</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#0f172a" }}>{receiptEntity}</div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
+              {receiptItems.length > 0 ? receiptItems.map(item => (
+                <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: 8, borderBottom: "1px solid #f1f5f9" }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#334155" }}>{item.description}</div>
+                    <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>Venc: {fmtDate(item.date)}</div>
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", color: "#0f172a" }}>
+                    {fmtMoney(item.amount)}
+                  </div>
+                </div>
+              )) : (
+                <div style={{ textAlign: "center", fontSize: 13, color: "#64748b", padding: "12px 0" }}>Nenhuma pendência encontrada.</div>
+              )}
+            </div>
+
+            <div style={{ background: "#f8fafc", borderRadius: 12, padding: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#64748b" }}>TOTAL DEVIDO</span>
+              <span style={{ fontSize: 20, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", color: "#6366f1" }}>
+                {fmtMoney(receiptTotal)}
+              </span>
+            </div>
+          </div>
+
+          {/* Botão Flutuante fora do print atualizado com WhatsApp */}
+          {receiptItems.length > 0 && (
+            <button onClick={handleGenerateImage} disabled={isGeneratingImg} style={{ marginTop: 24, width: "100%", maxWidth: 400, padding: 16, borderRadius: 14, border: "none", background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "white", fontSize: 15, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, boxShadow: "0 8px 32px rgba(99,102,241,0.4)" }}>
+              {isGeneratingImg ? <Loader2 className="spin-slow" size={20} /> : <><MessageCircle size={18} /> Compartilhar no WhatsApp</>}
+            </button>
+          )}
+        </div>
+      )}
+
 
       {/* ─── MODAL DE ADIÇÃO / EDIÇÃO ─── */}
       {isModalOpen && (
